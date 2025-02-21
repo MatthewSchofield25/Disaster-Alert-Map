@@ -6,7 +6,7 @@ from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 # Load credentials from environment variables
 BSKY_USERNAME = 'matthewschofield.bsky.social'  # Your Bluesky username
 BSKY_APP_PASSWORD = 'rmdr-vz42-zka4-uodo'  # Bluesky App Password
-PIPEDREAM_URL = 'link'  # Replace with your Pipedream HTTP Endpoint
+PIPEDREAM_URL = 'https://eompfs1n5bz87if.m.pipedream.net'  # Replace with your Pipedream HTTP Endpoint
 
 # Initialize Bluesky client
 client = Client()
@@ -42,10 +42,14 @@ def search_posts_and_send_to_pipedream(keyword):
 
                     # Prepare the row with post data
                     row = [
-                        post_author,        # Author
+                        keyword, #keyword used in query
+                        post_author,        # Author ID
+                                            #want Author display name
                         post_text,            # Text
-                        timestamp,      # Timestamp
+                        timestamp,      # Timestamp  REFORMAT TO SIMPLIFIED DATE ADN TIME
                         sentiment_score  # Sentiment Score
+                                        #add how to grab location from post_text
+                                        #add how to grab uri type
                     ]
                     rows.append(row)  # Add the row to the list
                 except AttributeError as e:
