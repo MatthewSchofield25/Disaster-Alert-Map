@@ -5,7 +5,7 @@ USE `posts`;
 
 -- Create Employees table
 CREATE TABLE IF NOT EXISTS Bluesky_Posts (
-    ID			INT				NOT NULL, 		-- primary key, the URI
+    ID			INT				NOT NULL, 		-- primary keym unique ID number
     Category 	VARCHAR(15),					-- determined by NLP processing
     Location	VARCHAR(15),					-- location may be null if not specified / determined
     OP_user 	VARCHAR(20)		NOT NULL,		-- original poster who posted the tweet
