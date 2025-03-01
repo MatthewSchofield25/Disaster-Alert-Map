@@ -1,20 +1,23 @@
 -- initial creation of database
--- DROP DATABASE IF EXISTS `posts`;
-CREATE DATABASE IF NOT EXISTS `posts`;
-USE `posts`;
+-- DROP DATABASE IF EXISTS `weatherapplicationserver`;
+CREATE DATABASE IF NOT EXISTS `weatherapplicationserver`;
+USE `weatherapplicationserver`;
 
--- Create Employees table
+-- Create table to hold Bluesky posts before feeding to model
 CREATE TABLE IF NOT EXISTS Bluesky_Posts (
-    ID			INT				NOT NULL, 		-- primary keym unique ID number
-    Category 	VARCHAR(15),					-- determined by NLP processing
-    Location	VARCHAR(15),					-- location may be null if not specified / determined
-    OP_user 	VARCHAR(20)		NOT NULL,		-- original poster who posted the tweet
-    Text_body	TEXT			NOT NULL,
-    Time_posted	TIMESTAMP		NOT NULL,
-    Sentiment	INT	,							-- may be updated later after scoring by the model
-	uri			TEXT			NOT NULL,		-- holds uri for the original post
-    Keyword 	VARCHAR(15),					-- keyword used to pull this tweet
-    PRIMARY KEY (ID),
+    -- these are guaranteed variables from the initial pull
+	post_uri			TEXT			NOT NULL,		-- holds uri for the original post
+    post_author 	VARCHAR(20)			NOT NULL,		-- original poster who posted the tweet
+    post_author_display	VARCHAR(20)		NOT NULL,		-- original poster's display name
+    post_text 		TEXT				NOT NULL,
+    timeposted		TIMESTAMP			NOT NULL,
+    sentiment_score		DECIMAL(5,4),							-- may be updated later after scoring by the model
+    keyword 		VARCHAR(15),					-- keyword used to pull this tweet
+    PRIMARY KEY (post_author, timeposted),
+    
+    -- determined by NLP processing
+    category 	VARCHAR(15),					
+    location	VARCHAR(15),					-- location may be null if not specified / determined
     
     -- Category should be a valid disaster type
     CONSTRAINT CATEGORY_CHECK CHECK (	
@@ -25,21 +28,13 @@ CREATE TABLE IF NOT EXISTS Bluesky_Posts (
 
 -- Insert data into Bluesky_Posts table
 -- The following is DUMMY DATA, not real posts
-INSERT INTO Bluesky_Posts (ID, Category, Location, OP_user, Text_body, Time_posted, Sentiment, uri, Keyword) 
+INSERT INTO Bluesky_Posts (post_uri, post_author, post_author_display, post_text, timeposted, sentiment_score, keyword, category, location) 
 VALUES
-(11, 'Hurricane', 'Florida', 'storm_tracker', 'Massive hurricane approaching Miami, stay safe!', '2025-02-28 22:10:00', -1, 'https://bsky.app/profile/storm_tracker/post/11', 'hurricane'),
-(12, 'Fire', 'Australia', 'firewatch', 'Bushfires spreading fast near Sydney suburbs.', '2025-02-28 22:45:00', -2, 'https://bsky.app/profile/firewatch/post/12', 'bushfire'),
-(13, 'Flood', 'Germany', 'weather_alert', 'Record rainfall causing severe flooding in Berlin.', '2025-02-28 23:20:00', -1, 'https://bsky.app/profile/weather_alert/post/13', 'flooding'),
-(14, 'Earthquake', 'California', 'quake_news', '5.8 magnitude earthquake just shook San Francisco!', '2025-02-27 00:05:00', -2, 'https://bsky.app/profile/quake_news/post/14', 'earthquake'),
-(15, 'Blizzard', 'Chicago', 'winter_update', 'Blizzard warning issued for the Midwest.', '2025-02-21 01:15:00', 0, 'https://bsky.app/profile/winter_update/post/15', 'blizzard'),
-(16, 'Tornado', 'Oklahoma', 'storm_hunter', 'Tornado forming south of Oklahoma City!', '2025-02-20 02:00:00', -2, 'https://bsky.app/profile/storm_hunter/post/16', 'tornado'),
-(18, 'Tsunami', 'Philippines', 'disaster_response', 'Tsunami alert after major offshore earthquake.', '2025-02-21 04:10:00', -2, 'https://bsky.app/profile/disaster_response/post/18', 'tsunami'),
-(19, 'Other', 'Unknown', 'random_thoughts', 'Unusual cloud formations over the city today.', '2025-02-25 05:00:00', 1, 'https://bsky.app/profile/random_thoughts/post/19', 'weather'),
-(20, 'Hurricane', 'Mexico', 'storm_tracker', 'Tropical storm strengthening near Yucatán Peninsula.', '2025-02-21 06:30:00', -1, 'https://bsky.app/profile/storm_tracker/post/20', 'storm'),
-(21, 'Fire', 'Canada', 'wildfire_alert', 'Wildfire out of control near British Columbia.', '2025-02-21 07:45:00', -2, 'https://bsky.app/profile/wildfire_alert/post/21', 'wildfire'),
-(22, 'Flood', NULL, 'news_bot', 'Unexpected flooding in New Orleans overnight.', '2025-02-23 08:15:00', 0, 'https://bsky.app/profile/news_bot/post/22', 'flooding'),
-(23, 'Earthquake', 'Turkey', 'quake_alerts', '7.0 magnitude earthquake detected near Istanbul.', '2025-02-22 09:00:00', -2, 'https://bsky.app/profile/quake_alerts/post/23', 'earthquake'),
-(24, 'Blizzard', 'Russia', 'weather_extreme', 'Coldest winter in decades hitting Siberia hard.', '2025-02-23 10:20:00', 0, 'https://bsky.app/profile/weather_extreme/post/24', 'coldwave'),
-(25, 'Tornado', 'Kansas', 'storm_tracker', 'Twister touchdown near Wichita, moving fast!', '2025-02-27 11:10:00', -2, 'https://bsky.app/profile/storm_tracker/post/25', 'twister'),
-(27, 'Tsunami', 'Chile', 'seismic_alert', 'Evacuations underway after tsunami warning issued.', '2025-02-23 13:30:00', -2, 'https://bsky.app/profile/seismic_alert/post/27', 'evacuation'),
-(28, 'Other', 'Space', 'astro_news', 'Solar flare activity increasing, possible geomagnetic storm.', '2025-02-24 14:10:00', 1, 'https://bsky.app/profile/astro_news/post/28', 'solarflare');
+('https://example.com/post1', 'user123', 'JohnDoe', 'Massive flooding in downtown!', '2025-03-01 12:30:00', 0.8765, 'flood', 'Flood', 'New York'),
+('https://example.com/post2', 'stormChaser', 'Storm Watcher', 'A tornado just touched down in Oklahoma!', '2025-03-01 13:00:00', -0.4321, 'tornado', 'Tornado', 'Oklahoma'),
+('https://example.com/post3', 'hurricaneHunter', 'Hurricane Tracker', 'Hurricane Maria making landfall now!', '2025-03-01 14:15:00', -0.6789, 'hurricane', 'Hurricane', 'Florida'),
+('https://example.com/post4', 'fireAlert', 'Fire Watch', 'Wildfires spreading fast due to strong winds.', '2025-03-01 15:45:00', -0.7890, 'fire', 'Fire', 'California'),
+('https://example.com/post5', 'quakeReporter', 'Earthquake Watch', 'Major earthquake shakes the city.', '2025-03-01 16:20:00', -0.9234, 'earthquake', 'Earthquake', 'Los Angeles'),
+('https://example.com/post6', 'tsunamiWarning', 'Tsunami Alert', 'Tsunami warning issued after a strong quake.', '2025-03-01 17:05:00', -0.6543, 'tsunami', 'Tsunami', 'Japan'),
+('https://example.com/post7', 'snowBlizz', 'Snow Storm', 'Heavy snowfall expected tonight.', '2025-03-01 18:30:00', 0.1234, 'blizzard', 'Blizzard', 'Chicago'),
+('https://example.com/post8', 'randomUser', 'UserXYZ', 'Strange weather patterns lately.', '2025-03-01 19:10:00', 0.0000, 'weather', 'Other', NULL);
