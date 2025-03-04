@@ -1,30 +1,38 @@
--- initial creation of database
--- DROP DATABASE IF EXISTS `weatherapplicationserver`;
-CREATE DATABASE IF NOT EXISTS `weatherapplicationserver`;
-USE `weatherapplicationserver`;
+-- Initial creation of database
+DROP DATABASE IF EXISTS weatherapplicationserver;
+GO
+CREATE DATABASE weatherapplicationserver;
+GO
+USE weatherapplicationserver;
+GO
 
 -- Create table to hold Bluesky posts before feeding to model
-CREATE TABLE IF NOT EXISTS Bluesky_Posts (
-    -- these are guaranteed variables from the initial pull
-	post_uri			TEXT			NOT NULL,		-- holds uri for the original post
-    post_author 	VARCHAR(20)			NOT NULL,		-- original poster who posted the tweet
-    post_author_display	VARCHAR(20)		NOT NULL,		-- original poster's display name
-    post_text 		TEXT				NOT NULL,
-    timeposted		TIMESTAMP			NOT NULL,
-    sentiment_score		DECIMAL(5,4),							-- may be updated later after scoring by the model
-    keyword 		VARCHAR(15),					-- keyword used to pull this tweet
-    PRIMARY KEY (post_author, timeposted),
-    
-    -- determined by NLP processing
-    category 	VARCHAR(15),					
-    location	VARCHAR(15),					-- location may be null if not specified / determined
-    
-    -- Category should be a valid disaster type
-    CONSTRAINT CATEGORY_CHECK CHECK (	
-		Category IN (	'Tornado', 'Hurricane', 'Fire', 'Tsunami', 'Earthquake', 'Flood',
-						'Blizzard', 'Other')	
-	)
-);
+IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'Bluesky_Posts')
+BEGIN
+    CREATE TABLE Bluesky_Posts (
+        -- these are guaranteed variables from the initial pull
+        post_uri            NVARCHAR(500)   NOT NULL,   -- holds URI for the original post
+        post_author         VARCHAR(50)     NOT NULL,   -- original poster who posted the tweet
+        post_author_display VARCHAR(50)     NOT NULL,   -- original poster's display name
+        post_text           NVARCHAR(MAX)   NOT NULL,   -- large text for post content
+        timeposted          DATETIME        NOT NULL,   -- timestamp
+        sentiment_score     DECIMAL(5,4),               -- may be updated later after scoring by the model
+        keyword             VARCHAR(20),                -- keyword used to pull this tweet
+        
+        -- determined by NLP processing
+        category            VARCHAR(15),                
+        location            VARCHAR(50),                -- location may be null if not specified/determined
+        
+        -- Category should be a valid disaster type
+        CONSTRAINT CATEGORY_CHECK CHECK (
+            category IN ('Tornado', 'Hurricane', 'Fire', 'Tsunami', 'Earthquake', 'Flood', 'Blizzard', 'Other')
+        ),
+
+        -- Ensure unique posts
+        CONSTRAINT PK_Bluesky_Posts PRIMARY KEY (post_uri)
+    );
+END;
+GO
 
 -- Insert data into Bluesky_Posts table
 -- The following is DUMMY DATA, not real posts
@@ -38,3 +46,4 @@ VALUES
 ('https://example.com/post6', 'tsunamiWarning', 'Tsunami Alert', 'Tsunami warning issued after a strong quake.', '2025-03-01 17:05:00', -0.6543, 'tsunami', 'Tsunami', 'Japan'),
 ('https://example.com/post7', 'snowBlizz', 'Snow Storm', 'Heavy snowfall expected tonight.', '2025-03-01 18:30:00', 0.1234, 'blizzard', 'Blizzard', 'Chicago'),
 ('https://example.com/post8', 'randomUser', 'UserXYZ', 'Strange weather patterns lately.', '2025-03-01 19:10:00', 0.0000, 'weather', 'Other', NULL);
+GO

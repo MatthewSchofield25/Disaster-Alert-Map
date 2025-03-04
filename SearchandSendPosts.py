@@ -35,21 +35,26 @@ def search_posts_and_send_to_pipedream(keyword):
                     # Extract necessary data from each post
                     post_text = post.record.text
                     post_author = post.author.handle
-                    timestamp = post.record.created_at
+                    post_author_display = post.author.display_name
+                    post_uri = post.uri
+                    timeposted = post.record.created_at
+                    location = ""
+                    catagory = ""
 
                     # Analyze sentiment of the post text
                     sentiment_score = analyze_sentiment_vader(post_text)
 
                     # Prepare the row with post data
                     row = [
-                        keyword, #keyword used in query
-                        post_author,        # Author ID
-                                            #want Author display name
-                        post_text,            # Text
-                        timestamp,      # Timestamp  REFORMAT TO SIMPLIFIED DATE ADN TIME
-                        sentiment_score  # Sentiment Score
-                                        #add how to grab location from post_text
-                                        #add how to grab uri type
+                        post_uri,
+                        post_author,
+                        post_author_display,
+                        post_text,
+                        timeposted,
+                        sentiment_score,
+                        keyword,
+                        catagory,
+                        location
                     ]
                     rows.append(row)  # Add the row to the list
                 except AttributeError as e:
