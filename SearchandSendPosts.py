@@ -39,7 +39,7 @@ def search_posts_and_send_to_pipedream(keyword):
                     post_uri = post.uri
                     timeposted = post.record.created_at
                     location = ""
-                    catagory = ""
+                    category = ""
 
                     # Analyze sentiment of the post text
                     sentiment_score = analyze_sentiment_vader(post_text)
@@ -53,7 +53,7 @@ def search_posts_and_send_to_pipedream(keyword):
                         timeposted,
                         sentiment_score,
                         keyword,
-                        catagory,
+                        category,
                         location
                     ]
                     rows.append(row)  # Add the row to the list
