@@ -6,7 +6,7 @@ from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 # Load credentials from environment variables
 BSKY_USERNAME = 'matthewschofield.bsky.social'  # Your Bluesky username
 BSKY_APP_PASSWORD = 'rmdr-vz42-zka4-uodo'  # Bluesky App Password
-PIPEDREAM_URL = 'https://eompfs1n5bz87if.m.pipedream.net'  # Replace with your Pipedream HTTP Endpoint
+PIPEDREAM_URL = ''  # Replace with your Pipedream HTTP Endpoint
 
 # Initialize Bluesky client
 client = Client()
@@ -24,8 +24,8 @@ def search_posts_and_send_to_pipedream(keyword):
     """Search posts by keyword, analyze sentiment, and send data to Pipedream."""
     try:
         # Fetch posts containing the keyword using Bluesky's searchPosts method
-        response = client.app.bsky.feed.search_posts({'q': keyword, 'limit': 100})
-        print(response)  # Debugging: Inspect the response structure
+        response = client.app.bsky.feed.search_posts({'q': keyword, 'limit': 1})
+        # print(response)  # Debugging: Inspect the response structure
 
         # Prepare list of rows to send to Pipedream
         rows = []
@@ -40,6 +40,8 @@ def search_posts_and_send_to_pipedream(keyword):
                     timeposted = post.record.created_at
                     location = ""
                     category = ""
+
+                    print('"'+post_text+'"')
 
                     # Analyze sentiment of the post text
                     sentiment_score = analyze_sentiment_vader(post_text)
@@ -75,5 +77,5 @@ def search_posts_and_send_to_pipedream(keyword):
         print(f"Error during search or sending to Pipedream: {e}")
 
 if __name__ == "__main__":
-    keyword = "forest fire"  # Replace with your desired search keyword
+    keyword = "wildfire"  # Replace with your desired search keyword
     search_posts_and_send_to_pipedream(keyword)

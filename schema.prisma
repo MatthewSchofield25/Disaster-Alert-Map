@@ -1,0 +1,24 @@
+// database
+datasource db {
+  provider = "sqlserver"
+  url      = "sqlserver://weatherapplicationserver.database.windows.net:1433;initial catalog=Bluesky_Posts;user=weatheremergencyapplication;password=Weather123;"
+}
+
+// generator
+generator client {
+  provider             = "prisma-client-py"
+  enable_experimental_decimal = true
+  recursive_type_depth = 5
+}
+
+model Bluesky_Posts {
+  post_uri            String  @id @db.NVarChar(500)
+  post_author         String  @db.VarChar(50)
+  post_author_display String  @db.VarChar(50)
+  post_text           String  @db.NVarChar(Max)
+  timeposted          DateTime @db.DateTime
+  sentiment_score     Decimal?  @db.Decimal(5, 4)
+  keyword            String?  @db.VarChar(20)
+  category           String?  @db.VarChar(15)
+  location           String?  @db.VarChar(50)
+}
