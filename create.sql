@@ -8,7 +8,7 @@ USE `weatherapplicationserver`;
 CREATE TABLE IF NOT EXISTS Bluesky_Posts (
     -- these are guaranteed variables from the initial pull
 	post_uri			TEXT				NOT NULL,		-- holds uri for the original post
-    post_author 		VARCHAR(20)			NOT NULL,		-- original poster who posted the tweet
+    post_author 		VARCHAR(32)			NOT NULL,		-- original poster who posted the tweet
     post_author_display	VARCHAR(20)			NOT NULL,		-- original poster's display name
     post_text 			TEXT				NOT NULL,
     timeposted			TIMESTAMP			NOT NULL,
@@ -26,7 +26,7 @@ CREATE TABLE IF NOT EXISTS LSTM_Posts (
     -- these are guaranteed variables from the initial pull
 	post_uri			TEXT				NOT NULL,		-- holds uri for the original post
     category			VARCHAR(20)			NOT NULL,
-    post_author 		VARCHAR(20)			NOT NULL,		-- original poster who posted the tweet
+    post_author 		VARCHAR(32)			NOT NULL,		-- original poster who posted the tweet
     post_author_display	VARCHAR(65)			NOT NULL,		-- original poster's display name
     post_text 			TEXT				NOT NULL,
     timeposted			TIMESTAMP			NOT NULL,
