@@ -9,14 +9,14 @@ CREATE TABLE IF NOT EXISTS Bluesky_Posts (
     -- these are guaranteed variables from the initial pull
 	post_uri			TEXT				NOT NULL,		-- holds uri for the original post
     post_author 		VARCHAR(32)			NOT NULL,		-- original poster who posted the tweet
-    post_author_display	VARCHAR(20)			NOT NULL,		-- original poster's display name
+    post_author_display	VARCHAR(65)			NOT NULL,		-- original poster's display name
     post_text 			TEXT				NOT NULL,
     timeposted			TIMESTAMP			NOT NULL,
     sentiment_score		DECIMAL(5,4),						-- may be updated later after scoring by the model
-    keyword 			VARCHAR(15),						-- keyword used to pull this tweet
+    keyword 			VARCHAR(20),						-- keyword used to pull this tweet
     
     -- determined by NLP/NER processing
-    location	VARCHAR(15),								-- location may be null if not specified / determined
+    location	VARCHAR(50),								-- location may be null if not specified / determined
 	
     PRIMARY KEY (post_author, timeposted)
 );
@@ -31,8 +31,8 @@ CREATE TABLE IF NOT EXISTS LSTM_Posts (
     post_text 			TEXT				NOT NULL,
     timeposted			TIMESTAMP			NOT NULL,
     sentiment_score		DECIMAL(5,4)		NOT NULL,		-- may be updated later after scoring by the model
-    keyword 			VARCHAR(15),						-- keyword used to pull this tweet
-    location			VARCHAR(15)			NOT NULL,				
+    keyword 			VARCHAR(20),						-- keyword used to pull this tweet
+    location			VARCHAR(50)			NOT NULL,				
     
     PRIMARY KEY (category, post_author, timeposted),
     
