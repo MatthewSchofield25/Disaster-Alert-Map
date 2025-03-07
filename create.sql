@@ -30,9 +30,9 @@ CREATE TABLE IF NOT EXISTS LSTM_Posts (
     post_author_display	VARCHAR(65)			NOT NULL,		-- original poster's display name
     post_text 			TEXT				NOT NULL,
     timeposted			TIMESTAMP			NOT NULL,
-    sentiment_score		DECIMAL(5,4),						-- may be updated later after scoring by the model
+    sentiment_score		DECIMAL(5,4)		NOT NULL,		-- may be updated later after scoring by the model
     keyword 			VARCHAR(15),						-- keyword used to pull this tweet
-    location			VARCHAR(15),						-- location may be null if not specified / determined
+    location			VARCHAR(15)			NOT NULL,				
     
     PRIMARY KEY (category, post_author, timeposted),
     
