@@ -27,12 +27,12 @@ CREATE TABLE IF NOT EXISTS LSTM_Posts (
 	post_uri			TEXT				NOT NULL,		-- holds uri for the original post
     category			VARCHAR(20)			NOT NULL,
     post_author 		VARCHAR(20)			NOT NULL,		-- original poster who posted the tweet
-    post_author_display	VARCHAR(20)			NOT NULL,		-- original poster's display name
+    post_author_display	VARCHAR(65)			NOT NULL,		-- original poster's display name
     post_text 			TEXT				NOT NULL,
     timeposted			TIMESTAMP			NOT NULL,
     sentiment_score		DECIMAL(5,4),						-- may be updated later after scoring by the model
     keyword 			VARCHAR(15),						-- keyword used to pull this tweet
-    location	VARCHAR(15),								-- location may be null if not specified / determined
+    location			VARCHAR(15),						-- location may be null if not specified / determined
     
     PRIMARY KEY (category, post_author, timeposted),
     
@@ -68,6 +68,7 @@ VALUES
 ('https://twitter.com/user7/status/11122', 'Volcano', 'user7', 'LavaFlow', 'Eruption warning issued for Mount XYZ!', '2025-03-06 15:45:55', -0.8332, 'volcano', 'Hawaii'),
 ('https://twitter.com/user8/status/33344', 'Landslide', 'user8', 'GeoAlert', 'Heavy rain triggered a landslide near the highway.', '2025-03-06 10:20:35', -0.7451, 'landslide', 'India'),
 ('https://twitter.com/user9/status/55566', 'Drought', 'user9', 'DryLands', 'Water levels are at an all-time low. Severe drought conditions.', '2025-03-05 08:50:20', -0.6890, 'drought', 'Texas'),
-('https://twitter.com/user10/status/77788', 'Flood', 'user10', 'RiverRise', 'The river has overflowed, severe flooding in the area.', '2025-03-06 04:10:50', -0.9123, 'flood', 'Bangladesh');
+('https://twitter.com/user10/status/77788', 'Flood', 'user10', 'RiverRise', 'The river has overflowed, severe flooding in the area.', '2025-03-06 04:10:50', -0.9123, 'flood', 'Bangladesh'),
+('https://twitter.com/user11/status/77788', 'Flood', 'user11', 'RiverAlert', 'Flash flood warning in the area.', '2025-03-06 04:10:51', -0.9125, 'flood', 'Hawaii');
 
 
