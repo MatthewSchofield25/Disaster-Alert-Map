@@ -7,7 +7,7 @@ USE `weatherapplicationserver`;
 -- this data will be put through NLP/NER
 CREATE TABLE IF NOT EXISTS Bluesky_Posts (
     -- these are guaranteed variables from the initial pull
-	post_uri			TEXT				NOT NULL,		-- holds uri for the original post
+	post_uri			VARCHAR(128)		NOT NULL,		-- holds uri for the original post
     post_author 		VARCHAR(32)			NOT NULL,		-- original poster who posted the tweet
     post_author_display	VARCHAR(65)			NOT NULL,		-- original poster's display name
     post_text 			TEXT				NOT NULL,
@@ -18,13 +18,13 @@ CREATE TABLE IF NOT EXISTS Bluesky_Posts (
     -- determined by NLP/NER processing
     location	VARCHAR(50),								-- location may be null if not specified / determined
 	
-    PRIMARY KEY (post_author, timeposted)
+    PRIMARY KEY (post_uri)
 );
 
 -- Create table to hold Bluesky posts before feeding to model
 CREATE TABLE IF NOT EXISTS LSTM_Posts (
     -- these are guaranteed variables from the initial pull
-	post_uri			TEXT				NOT NULL,		-- holds uri for the original post
+	post_uri			VARCHAR(128)				NOT NULL,		-- holds uri for the original post
     category			VARCHAR(20)			NOT NULL,
     post_author 		VARCHAR(32)			NOT NULL,		-- original poster who posted the tweet
     post_author_display	VARCHAR(65)			NOT NULL,		-- original poster's display name
@@ -34,7 +34,7 @@ CREATE TABLE IF NOT EXISTS LSTM_Posts (
     keyword 			VARCHAR(20),						-- keyword used to pull this tweet
     location			VARCHAR(50)			NOT NULL,				
     
-    PRIMARY KEY (category, post_author, timeposted),
+    PRIMARY KEY (post_uri),
     
     -- category should be a valid disaster type
     CONSTRAINT CATEGORY_CHECK CHECK (	
