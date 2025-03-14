@@ -16,253 +16,6 @@ Original file is located at
 import pandas as pd
 import numpy as np
 import spacy
-
-import re
-import nltk
-nltk.download('stopwords')
-from nltk.corpus import stopwords
-from nltk.corpus import wordnet
-from nltk.stem.porter import PorterStemmer
-from nltk.stem import WordNetLemmatizer
-from wordcloud import WordCloud
-from sklearn.feature_extraction.text import CountVectorizer
-from sklearn.feature_extraction.text import TfidfVectorizer
-
-# Used for ML/Deep Learning Algorithms
-from tensorflow.keras.layers import Embedding,Dropout
-from tensorflow.keras.preprocessing.sequence import pad_sequences
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.preprocessing.text import one_hot
-from tensorflow.keras.layers import LSTM,Bidirectional,GRU,MaxPooling1D,Conv1D
-from tensorflow.keras.layers import Dense
-from sklearn.metrics import classification_report,accuracy_score
-from sklearn.linear_model import LogisticRegression
-from sklearn.tree import DecisionTreeClassifier
-from sklearn.ensemble import RandomForestClassifier
-from xgboost import XGBClassifier
-#from catboost import CatBoostClassifier
-from sklearn.linear_model import LogisticRegression
-from sklearn.naive_bayes import MultinomialNB
-from tensorflow.keras.preprocessing.text import Tokenizer
-
-# Sentiment analysis
-nltk.download("vader_lexicon")
-from nltk.sentiment.vader import SentimentIntensityAnalyzer
-from sklearn.metrics import accuracy_score
-
-from sklearn.model_selection import train_test_split
-
-
-
-# Labels on the data
-#id : A unique identifier for each tweet.
-#keyword : A particular keyword from the tweet (may be blank).
-#location: The location the tweet was sent from (may be blank).
-#text : The text of the tweet.
-#target : This denotes whether a tweet is about a real disaster (1) or not (0).
-
-common_words = ['via','like','build','get','would','one','two','feel','lol','fuck','take','way','may','first','latest'
-                'want','make','back','see','know','let','look','come','got','still','say','think','great','pleas','amp']
-
-def text_cleaning(data):
-    return ' '.join(i for i in data.split() if i not in common_words)
-
-train = pd.read_csv("train.csv")
-test = pd.read_csv("test.csv")
-
-# Print column names to verify
-print("Updated Column Names:", test.columns)
-
-# Use the correct column name ('Text' instead of 'text')
-test.rename(columns={"Text": "text"}, inplace=True)
-
-# Ensure the column is treated as a string
-test["text"] = test["text"].astype(str)
-
-# Print first few rows to verify changes
-print(test.head())
-
-ps = PorterStemmer()
-
-nltk.download('wordnet')
-
-lemmatizer = WordNetLemmatizer()
-
-def preprocess_data(data):
-    """
-    Cleans and preprocesses text:
-    - Removes URLs, HTML, emojis, and punctuation
-    - Converts text to lowercase
-    - Removes stopwords
-    - Uses lemmatization instead of stemming
-    """
-    review = re.sub(r'https?://\S+|www\.\S+|http?://\S+', ' ', data)  # remove urls
-    review = re.sub(r'<.*?>', ' ', review)  # remove html tags
-    review = re.sub("["
-                           u"\U0001F600-\U0001F64F"  # remove emojis
-                           u"\U0001F300-\U0001F5FF"  # remove symbols
-                           u"\U0001F680-\U0001F6FF"  # remove transport symbols
-                           u"\U0001F1E0-\U0001F1FF"  # remove flags
-                           "]+", ' ', review)
-    review = re.sub('[^a-zA-Z]', ' ', review)  # remove non-alphabetic characters
-    review = review.lower()  # makes text lowercase
-    review = review.split()  # tokenize
-
-    # will lemmatize words instead of stemming
-    review = [lemmatizer.lemmatize(word, wordnet.VERB) for word in review if word not in stopwords.words('english')]
-
-    return ' '.join(review)  # convert list back to string
-
-train["Cleaned_text"] = train["text"].apply(preprocess_data)
-test["Cleaned_text"] = test["text"].apply(preprocess_data)
-
-#for i in range(10):
-#    print(train["Cleaned_text"][i])
-
-
-def sentiment_ana(data):
-    sid_obj = SentimentIntensityAnalyzer()
-    sentiment_dict = sid_obj.polarity_scores(data)
-    return sentiment_dict['compound']
-
-train["Sentiment"] = train["text"].apply(sentiment_ana)
-train["Sentiment_Cleaned"] = train["Cleaned_text"].apply(sentiment_ana)
-
-#print(train["Sentiment"])
-#print(test["Sentiment_Cleaned"]
-
-#for i in range(10):
-#    print(train["Sentiment"][i])
-
-train.head()
-
-# converting  text data into TF-IDF numerical representation
-vectorizer = TfidfVectorizer(max_features=5000)  # using top 5000 words as features
-X_train_tfidf = vectorizer.fit_transform(train["Cleaned_text"])  # fit on training data
-X_test_tfidf = vectorizer.transform(test["Cleaned_text"])  # transform test data
-
-# this assumes "target" is the column that contains labels (1 = disaster, 0 = not disaster)
-y_train = train["target"]
-
-# we split training data into train and validation sets
-X_train, X_val, y_train, y_val = train_test_split(X_train_tfidf, y_train, test_size=0.2, random_state=42)
-
-# then train a logistic regression model
-model = LogisticRegression()
-model.fit(X_train, y_train)
-
-# we make predictions on validation data
-y_pred = model.predict(X_val)
-
-# then it prints classification report (precision, recall, F1-score)
-print(classification_report(y_val, y_pred))
-
-# and prints accuracy score
-print("Validation Accuracy:", accuracy_score(y_val, y_pred))
-
-# predicts labels for test data or any unseen data
-test["Predicted_Label"] = model.predict(X_test_tfidf)
-
-# shwos a few predictions
-#print(test[["Cleaned_text", "Predicted_Label"]].head())
-
-import spacy
-from nltk.sentiment.vader import SentimentIntensityAnalyzer
-
-# laoding spaCy's NER model for location detection
-nlp = spacy.load("en_core_web_sm")
-
-# blacklisted words
-political_words = {"election", "government", "politician", "congress", "senate", "president", "vote"}
-
-# loading VADER sentiment analyzer
-sia = SentimentIntensityAnalyzer()
-
-#extracts location entities form text using spaCy's NER
-def extract_location(text):
-    doc = nlp(text)
-    locations = [ent.text for ent in doc.ents if ent.label_ == "GPE"]  # GPE = Geopolitical Entity/location
-    return locations if locations else None  # returns list of locations or none
-
-#uses sentiment analysis to classifty urgency
-def detect_urgency(text):
-    sentiment = sia.polarity_scores(text)
-    compound_score = sentiment['compound']  # overall sentiment score
-
-    # define urgency thresholds
-    if compound_score <= -0.5:  # strongly negative sentiment
-        return "High Urgency"
-    elif -0.5 < compound_score < 0.1:  # neutral to slightly negative
-        return "Medium Urgency"
-    else:
-        return "Low Urgency"
-
-#filters out posts containing politically related words
-def filter_political_text(text):
-    words = set(text.lower().split())  # Convert text into a set of words (lowercase)
-    return any(word in words for word in political_words)  # Returns True if political word is found
-
-#combines the analysis steps
-#1 detects locations using NER
-#2 determines urgency using sentiment analysis
-#3 filters out polically related words
-def analyze_post(text):
-    location = extract_location(text)
-    urgency = detect_urgency(text)
-    is_political = filter_political_text(text)
-
-    # returns result as a disctionary
-    return {
-        "Post": text,
-        "Location": location,
-        "Urgency": urgency,
-        "Filtered (Political)": is_political
-    }
-
-test["Location"] = test["Cleaned_text"].apply(extract_location)
-test["Urgency"] = test["Cleaned_text"].apply(detect_urgency)
-test["Filtered (Political)"] = test["Cleaned_text"].apply(filter_political_text)
-
-disaster_categories = {
-    "Earthquake": ["earthquake", "quake", "seismic", "richter", "aftershock", "tremor"],
-    "Wildfire": ["wildfire", "bushfire", "forest fire", "firestorm", "blaze"],
-    "Hurricane": ["hurricane", "cyclone", "typhoon", "storm surge", "tropical storm"],
-    "Flood": ["flood", "flash flood", "heavy rain", "overflow", "dam failure"],
-    "Tornado": ["tornado", "twister", "funnel cloud", "storm"],
-    "Tsunami": ["tsunami", "seismic wave", "ocean surge"],
-    "Volcano": ["volcano", "eruption", "lava", "ash cloud", "magma"],
-    "Landslide": ["landslide", "mudslide", "rockfall", "avalanche"],
-    "Drought": ["drought", "water shortage", "dry spell", "desertification"],
-    "Blizzard": ["blizzard", "snowstorm", "ice storm", "whiteout"],
-}
-
-def categorize_disaster(text):
-    """
-    Categorizes a text post into a specific natural disaster category.
-    """
-    text = text.lower()  # makes text lowercase
-
-    for disaster, keywords in disaster_categories.items():
-        if any(word in text for word in keywords):  # checks if the text has a keyword
-            return disaster  # returns the matched category
-
-    return "Other"  # if it doesnt match then its other
-
-# categorization to each post
-test["Disaster_Category"] = test["Cleaned_text"].apply(categorize_disaster)
-
-# displays results
-print(test[["Cleaned_text", "Predicted_Label", "Location", "Urgency", "Filtered (Political)", "Disaster_Category"]].head(50))
-
-# Main Steps:
-# Data Preprocessing: Tokenize data and remove punctuation. Don't forget to .lower
-# NLP: Process Data; Detect frequency of words, n-grams (BOW), TF-IDF, possibly Glove Vectors.
-# Model: We can use different models and test their accuracies. LTSM possibly
-
-
-import pandas as pd
-import numpy as np
-import spacy
 import tensorflow as tf
 from tensorflow.keras.preprocessing.text import Tokenizer
 from tensorflow.keras.preprocessing.sequence import pad_sequences
@@ -324,11 +77,9 @@ def text_cleaning(data):
 train = pd.read_csv("train.csv")
 test = pd.read_csv("test.csv")
 
-# Rename columns to match expected format
 train.rename(columns={"Text": "text", "Label": "target"}, inplace=True)
 test.rename(columns={"Text": "text"}, inplace=True)
 
-# Ensure labels are integers
 train["target"] = train["target"].astype(int)
 
 # Split into train & validation sets
@@ -398,7 +149,7 @@ train["Sentiment_Cleaned"] = train["Cleaned_text"].apply(sentiment_ana)
 #    print(train["Sentiment"][i])
 
 # Convert text to numerical form using TF-IDF
-vectorizer = TfidfVectorizer(max_features=5000)
+vectorizer = TfidfVectorizer(max_features=10000, ngram_range=(1, 2))
 X_tfidf = vectorizer.fit_transform(train["Cleaned_text"])  # Use cleaned text
 y = train["target"]  # 1 = relevant, 0 = not relevant
 
@@ -409,15 +160,24 @@ X_train_tfidf, X_val_tfidf, y_train, y_val = train_test_split(X_tfidf, y, test_s
 relevance_model = LogisticRegression()
 relevance_model.fit(X_train_tfidf, y_train)
 
-# Validate the classifier
+#validate the classifier
 val_accuracy = relevance_model.score(X_val_tfidf, y_val)
 print(f"Relevance Classifier Accuracy: {val_accuracy:.4f}")
 
 # Convert test data to TF-IDF format
 X_test_tfidf = vectorizer.transform(test["Cleaned_text"])
 
+# Get probability scores for being relevant
+probs = relevance_model.predict_proba(X_test_tfidf)[:, 1]
+
+# Apply stricter threshold for classifying as "Relevant" (Change threshold from 0.5 to 0.7)
+test["Relevant"] = (probs > 0.7).astype(int)
+
+# Keep only relevant posts
+relevant_posts = test[test["Relevant"] == 1].copy()
+
 # Predict relevance for test data
-test["Relevant"] = relevance_model.predict(X_test_tfidf)
+#test["Relevant"] = relevance_model.predict(X_test_tfidf)
 
 # Keep only relevant posts
 relevant_posts = test[test["Relevant"] == 1].copy()
@@ -426,24 +186,32 @@ relevant_posts = test[test["Relevant"] == 1].copy()
 relevant_posts["Location"] = relevant_posts["Cleaned_text"].apply(extract_location)
 
 
-# Display results
+#dissplays results
 print(relevant_posts[["text", "Relevant"]].head(10))
 
 train.head()
 
-# Define disaster categories and assign numeric labels
 disaster_categories = {
-    "Earthquake": 0,
-    "Wildfire": 1,
-    "Hurricane": 2,
-    "Flood": 3,
-    "Tornado": 4,
-    "Tsunami": 5,
-    "Volcano": 6,
-    "Landslide": 7,
-    "Drought": 8,
-    "Blizzard": 9
+    "Earthquake": 0, "Wildfire": 1, "Hurricane": 2, "Flood": 3, "Tornado": 4,
+    "Tsunami": 5, "Volcano": 6, "Landslide": 7, "Drought": 8, "Blizzard": 9,
+    "Other": 10
 }
+
+
+disaster_keywords = {
+    "Earthquake": ["earthquake", "quake", "seismic", "richter", "aftershock", "tremor"],
+    "Wildfire": ["wildfire", "bushfire", "forest fire", "firestorm", "blaze"],
+    "Hurricane": ["hurricane", "cyclone", "typhoon", "storm surge", "tropical storm"],
+    "Flood": ["flood", "flash flood", "heavy rain", "overflow", "dam failure"],
+    "Tornado": ["tornado", "twister", "funnel cloud", "storm"],
+    "Tsunami": ["tsunami", "seismic wave", "ocean surge"],
+    "Volcano": ["volcano", "eruption", "lava", "ash cloud", "magma"],
+    "Landslide": ["landslide", "mudslide", "rockfall", "avalanche"],
+    "Drought": ["drought", "water shortage", "dry spell", "desertification"],
+    "Blizzard": ["blizzard", "snowstorm", "ice storm", "whiteout"]
+}
+
+
 
 #Function to assign category labels
 def categorize_disaster(text):
@@ -464,10 +232,19 @@ def categorize_disaster(text):
             return disaster
     return "Other"
 
-#Apply categorization to the training data
+#Applying Categorization to the training data
 train["category"] = train["Cleaned_text"].apply(categorize_disaster)
-train = train[train["category"] != "Other"]  # Remove non-disaster posts
-train["category_label"] = train["category"].map(disaster_categories)
+train["category_label"] = train["category"].map(disaster_categories)  # Keep "Other" in training data
+
+#Data Augmentation
+if "Hurricane" in train["category"].values and "Earthquake" in train["category"].values:
+    extra_typhoon = train[train["category"] == "Hurricane"].sample(100, replace=True, random_state=42)
+    extra_earthquake = train[train["category"] == "Earthquake"].sample(100, replace=True, random_state=42)
+    train = pd.concat([train, extra_typhoon, extra_earthquake])
+
+# Print category distribution after augmentation
+print("Category distribution after augmentation:\n", train["category"].value_counts())
+
 
 #Hyperparameters
 MAX_NB_WORDS = 5000  # Vocabulary size
@@ -482,14 +259,14 @@ tokenizer.fit_on_texts(train["Cleaned_text"])
 X_train_seq = tokenizer.texts_to_sequences(train["Cleaned_text"])
 X_test_seq = tokenizer.texts_to_sequences(relevant_posts["Cleaned_text"])  # Only relevant posts
 
-# Pad sequences to ensure uniform input size
+#pads sequences to ensure uniform input size
 X_train_seq = pad_sequences(X_train_seq, maxlen=MAX_SEQUENCE_LENGTH)
 X_test_seq = pad_sequences(X_test_seq, maxlen=MAX_SEQUENCE_LENGTH)
 
 num_classes = len(disaster_categories)  # Total number of disaster types
 y_train_cat = to_categorical(train["category_label"], num_classes)
 
-# Define Multi-Class LSTM Model
+#defining Multi-Class LSTM Model
 model = Sequential([
     Embedding(input_dim=MAX_NB_WORDS, output_dim=EMBEDDING_DIM, input_length=MAX_SEQUENCE_LENGTH),
     SpatialDropout1D(0.2),
@@ -498,36 +275,110 @@ model = Sequential([
     Dense(num_classes, activation='softmax')  # Multi-class classification
 ])
 
-# Compile model
+
 model.compile(loss='categorical_crossentropy', optimizer='adam', metrics=['accuracy'])
 
-# Model summary
+
 model.summary()
 
-# Train the LSTM Model on disaster categories
+#trains the LSTM Model on disaster categories
 model.fit(X_train_seq, y_train_cat, epochs=5, batch_size=32, validation_split=0.2)
 
-# Predict disaster category for relevant posts
+#predict disaster category for relevant posts
 predictions = model.predict(X_test_seq)
 
-# Get category index with highest probability
-relevant_posts["Predicted_Category"] = predictions.argmax(axis=1)
+#gets category index with highest probability
+#relevant_posts["Predicted_Category"] = predictions.argmax(axis=1)
 
 # Map numeric predictions back to disaster type
+#reverse_category_map = {v: k for k, v in disaster_categories.items()}
+#relevant_posts["Predicted_Disaster_Type"] = relevant_posts["Predicted_Category"].map(reverse_category_map)
+
+
+#gets probability scores
+predictions = model.predict(X_test_seq)
+
+#gets category index with highest probability
+predicted_probs = predictions.max(axis=1)  # Highest probability per post
+predicted_categories = predictions.argmax(axis=1)  # Predicted category index
+
+
+#gets probability scores for each predicted category
+predictions = model.predict(X_test_seq)
+
+
+print("Max probability per post:\n", predictions.max(axis=1)[:20])  # Print first 20 for review
+
+
+#gets category index with highest probability
+predicted_categories = predictions.argmax(axis=1)  # Get predicted disaster categories
+predicted_probs = predictions.max(axis=1)  # Highest probability per post
+
+#print the first 20 category predictions
+print("Raw predicted categories (before thresholding):", predicted_categories[:20])
+
+
+def force_category_if_disaster(text, pred_cat, prob, threshold=0.3):
+    """
+    If a post contains disaster-related keywords, force the correct category.
+    """
+    text = text.lower()
+
+    for disaster, keywords in disaster_keywords.items():
+        if any(word in text for word in keywords):  # If it contains disaster keywords
+            correct_label = disaster_categories[disaster]
+            if correct_label != pred_cat:
+                print(f"Fixing misclassification: '{text}' was {pred_cat}, corrected to {correct_label}")
+            return correct_label  # Force correct label
+
+    return 10 if prob < threshold else pred_cat  # Assign "Other" if confidence is too low
+
+
+
+corrected_categories = [
+    force_category_if_disaster(text, cat, prob, threshold=0.3)
+    for text, cat, prob in zip(relevant_posts["Cleaned_text"], predicted_categories, predicted_probs)
+]
+
+#ensures assignment is correct
+relevant_posts["Predicted_Category"] = corrected_categories
+
+
+threshold = 0.3
+predicted_categories = [
+    10 if prob < threshold else cat  # Assign "Other" if confidence is too low
+    for prob, cat in zip(predicted_probs, predicted_categories)
+]
+
+#convert category index back to disaster type
 reverse_category_map = {v: k for k, v in disaster_categories.items()}
-relevant_posts["Predicted_Disaster_Type"] = relevant_posts["Predicted_Category"].map(reverse_category_map)
+relevant_posts["Predicted_Disaster_Type"] = [
+    reverse_category_map[cat] if cat != 10 else "Other"
+    for cat in corrected_categories
+]
 
 
 
-# Ensure text is fully visible
+
+#ensures the text is fully visible
 pd.set_option("display.max_colwidth", None)
 pd.set_option("display.max_columns", None)
 
-# Select columns for final display
-final_display = relevant_posts[["id", "text", "Cleaned_text", "Location", "Predicted_Disaster_Type"]]
 
-# Display the DataFrame in a clean format
-display(final_display.head(50))
+#final_display = relevant_posts[["id", "text", "Cleaned_text", "Location", "Predicted_Disaster_Type"]]
 
-# Display final results
+
+#display(final_display.head(50))
+
 #print(relevant_posts[["text", "Location", "Predicted_Disaster_Type"]].head(50))
+
+
+filtered_display = relevant_posts[
+    (relevant_posts["Predicted_Disaster_Type"] != "Other") & (relevant_posts["Location"] != "None")
+]
+
+
+final_display = filtered_display[["id", "text", "Cleaned_text", "Location", "Predicted_Disaster_Type"]]
+
+#display results
+display(final_display.head(50))
