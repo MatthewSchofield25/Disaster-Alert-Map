@@ -1,9 +1,9 @@
 -- Initial creation of database
-DROP DATABASE IF EXISTS weatherapplicationserver;
+DROP DATABASE IF EXISTS posts;
 GO
-CREATE DATABASE weatherapplicationserver;
+CREATE DATABASE posts;
 GO
-USE weatherapplicationserver;
+USE posts;
 GO
 
 -- Create table to hold Bluesky posts before feeding to model

@@ -8,29 +8,65 @@ async def main() -> None:
     await db.connect()
 
     # INPUT DATA HERE
-    # for post_data in dummy_posts:
-    #     posts = await Bluesky_Posts.prisma().create(
-    #         data=post_data,
-    #     )
+    # DATA SCIENTISTS WILL USE THIS TO INSERT ALL NEW DATA INTO LSTM DATABASE
+    for post_data in dummy_posts:
+        posts = await Bluesky_Posts.prisma().create(
+            data=post_data,
+        )
 
     # UPDATE A POSTS CONTENT
+    # DATA SCIENTISTS WILL USE THIS TO UPDATE THE POSTS AFTER NLP
     updated_post = await Bluesky_Posts.prisma().update(
         where={"post_uri": "https://bsky.app/post/1"},  # Filter by post_uri
         data={"location": '', "category": ''},  # Fields to update
     )
     print(updated_post)
 
+    
+    
+
+        # Check for duplicates before inserting
+    # for post_tuple in rows:
+    #     # Convert tuple to dictionary for Prisma insertion
+    #     post_data = {
+    #         "post_uri": post_tuple[0],
+    #         "post_author": post_tuple[1],
+    #         "post_author_display": post_tuple[2],
+    #         "post_text": post_tuple[3],
+    #         "timeposted": post_tuple[4],
+    #         "sentiment_score": post_tuple[5],
+    #         "keyword": post_tuple[6],
+    #         "location": post_tuple[7],
+    #     }
+
+    #     # Check for duplicates before inserting
+    #     existing_post = await Bluesky_Posts.prisma().find_first(
+    #         where={
+    #             "post_author": post_data["post_author"],
+    #             "timeposted": post_data["timeposted"]
+    #         }
+    #     )
+
+    #     if existing_post:
+    #         print(f"Skipping duplicate post: {post_data['post_uri']}")
+    #         continue  # Skip inserting duplicate records
+
+    #     await Bluesky_Posts.prisma().create(data=post_data)
+
     # GET ALL POSTS AND PRINT
-    # all_posts = await Bluesky_Posts.prisma().find_many()
-    # for post in all_posts:
-    #     print(post)
+    # DATA SCIENTISTS WILL USE THIS TO RETRIEVE DATA
+    # FRONT-END WILL USE AFTER LSTM MODEL TO DISPLAY TO WEBSITE
+    # PRINT STATEMENT TO DISPLAY ALL POSTS
+    all_posts = await Bluesky_Posts.prisma().find_many()
+    for post in all_posts:
+        print(post)
 
     await db.disconnect()
 
 # DUMMYDATA WILL REMOVE LATER ONCE BLUESKY API CLIENT IS INTEGRATED
 dummy_posts = [
     {
-        'post_uri': 'https://bsky.app/post/1',
+        'post_uri': 'https://bsky.app/post/2',
         'post_author': 'user1',
         'post_author_display': 'Alice Johnson',
         'post_text': 'Tornado warning issued for our area. Stay safe, everyone! 🌪️ #TornadoWarning',
