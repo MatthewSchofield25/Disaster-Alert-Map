@@ -22,7 +22,7 @@ from tensorflow.keras.preprocessing.sequence import pad_sequences
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Embedding, LSTM, Dense, SpatialDropout1D
 from sklearn.model_selection import train_test_split
-from IPython.display import display
+#from IPython.display import display
 
 import re
 import nltk
@@ -373,12 +373,12 @@ pd.set_option("display.max_columns", None)
 #print(relevant_posts[["text", "Location", "Predicted_Disaster_Type"]].head(50))
 
 
-filtered_display = relevant_posts[
-    (relevant_posts["Predicted_Disaster_Type"] != "Other") & (relevant_posts["Location"] != "None")
-]
+#filtered_display = relevant_posts[
+#    (relevant_posts["Predicted_Disaster_Type"] != "Other") & (relevant_posts["Location"] != "None")
+#]
 
 
-final_display = filtered_display[["id", "text", "Cleaned_text", "Location", "Predicted_Disaster_Type"]]
+#final_display = filtered_display[["id", "text", "Cleaned_text", "Location", "Predicted_Disaster_Type"]]
 
 #display results
-display(final_display.head(50))
+#display(final_display.head(50))
