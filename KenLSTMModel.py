@@ -25,18 +25,13 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score, f1_score, classification_report
 import spacy
 import pyodbc
+import os
 
 driver = '{ODBC Driver 18 for SQL Server}'
-server = "weatherapplicationserver.database.windows.net"
-database = "Bluesky_Posts"
-username = "weatheremergencyapplication"
-password = "Weather123"
-
-
-
-
-
-
+server = os.getenv("DATABASE_SERVER")
+database = os.getenv("DATABASE_NAME")
+username = os.getenv("DATABASE_USERNAME")
+password = os.getenv("DATABASE_PASSWORD")
 
 nlp = spacy.load("en_core_web_sm")
 
