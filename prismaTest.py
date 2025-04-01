@@ -9,18 +9,18 @@ async def main() -> None:
 
     # INPUT DATA HERE
     # DATA SCIENTISTS WILL USE THIS TO INSERT ALL NEW DATA INTO LSTM DATABASE
-    for post_data in dummy_posts:
-        posts = await Bluesky_Posts.prisma().create(
-            data=post_data,
-        )
+    # for post_data in dummy_posts:
+    #     posts = await Bluesky_Posts.prisma().create(
+    #         data=post_data,
+    #     )
 
     # UPDATE A POSTS CONTENT
     # DATA SCIENTISTS WILL USE THIS TO UPDATE THE POSTS AFTER NLP
-    updated_post = await Bluesky_Posts.prisma().update(
-        where={"post_uri": "https://bsky.app/post/1"},  # Filter by post_uri
-        data={"location": '', "category": ''},  # Fields to update
-    )
-    print(updated_post)
+    # updated_post = await Bluesky_Posts.prisma().update(
+    #     where={"post_uri": "https://bsky.app/post/1"},  # Filter by post_uri
+    #     data={"location": '', "category": ''},  # Fields to update
+    # )
+    # print(updated_post)
 
     
     

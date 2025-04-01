@@ -70,17 +70,6 @@ async def main() -> None:
 
     await db.disconnect()
 
-
-
-# async def insert_post_data(db, post_data):
-#     try:
-#         result = await db.Bluesky_Posts.create(data=post_data)
-#         print(f"Created post: {result}")
-#     except Exception as e:
-#         print(f"Error inserting post: {e}")
-
-
-
 async def validate_post_data(post_data):
     required_keys = ["post_uri", "post_author", "post_text", "timeposted"]
 
@@ -99,19 +88,13 @@ async def validate_post_data(post_data):
 
     return True
 
-
-
 def clean_text(text):
     return ''.join(c for c in unicodedata.normalize('NFC', text) if unicodedata.category(c)[0] != 'C')
-
-
 
 def analyze_sentiment_vader(text):
     analyzer = SentimentIntensityAnalyzer()
     sentiment_score = analyzer.polarity_scores(text)['compound']
     return float(Decimal(str(sentiment_score)).quantize(Decimal('0.0000'), rounding=ROUND_DOWN))
-
-
 
 def search_posts_and_send(keyword):
     try:
