@@ -99,6 +99,26 @@ async def load_data_test():
     test.rename(columns={"post_text": "text"}, inplace=True)
     return test
 
+#loads Vanessa's model output into the table LSTM_Posts, 4_2
+async def load_LSTM_data():
+    try:
+        conn = pyodbc.connect(f'DRIVER={driver};SERVER={server};DATABASE={database};UID={username};PWD={password}')
+    except Exception as e:
+        print(f"Error connecting to SQL Server: {e}")
+        return None
+    print("SQL server connection successful")
+    cursor = conn.cursor()
+    for index, row in test2.iterrows():
+        cursor.execute(
+            "INSERT INTO LSTM_Posts (post_uri, post_author, post_author_display, post_text, timeposted, sentiment_score, keyword, location, cleaned_text, category, sentiment_label, prediction) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", 
+            row.post_uri, row.post_author, row.post_author_display, row.text, row.timeposted, row.sentiment_score, row.keyword, row.location, row.cleaned_text, row.category, row.sentiment_label, row.prediction
+        )
+    conn.commit()
+    cursor.close()
+    conn.close()
+    return "Data inserted into Posts" 
+
 async def main() -> None:
     try:
         train = await load_data_train() # train data will always remain the same
@@ -106,18 +126,18 @@ async def main() -> None:
     except Exception as e:
         print(f"Error fetching posts: {e}")
     
-
-    train["Cleaned_text"] = train["text"].apply(preprocess_data)
-    test["Cleaned_text"] = test["text"].apply(preprocess_data)
+    #4_2, renamed variables to lowercase for consistency with database
+    train["cleaned_text"] = train["text"].apply(preprocess_data)
+    test["cleaned_text"] = test["text"].apply(preprocess_data)
 
     #sentiment analysis
     sia = SentimentIntensityAnalyzer()
-    train["Sentiment"] = train["text"].apply(lambda x: sia.polarity_scores(x)["compound"])
-    test["Sentiment"] = test["text"].apply(lambda x: sia.polarity_scores(x)["compound"])
+    train["sentiment_score"] = train["text"].apply(lambda x: sia.polarity_scores(x)["compound"])
+    test["sentiment_score"] = test["text"].apply(lambda x: sia.polarity_scores(x)["compound"])
 
     #detecting relevance
     vectorizer = TfidfVectorizer(max_features=10000, ngram_range=(1, 2))
-    X_tfidf = vectorizer.fit_transform(train["Cleaned_text"])
+    X_tfidf = vectorizer.fit_transform(train["cleaned_text"])
     y_tfidf = train["target"]
 
     X_train_tfidf, X_val_tfidf, y_train_tfidf, y_val_tfidf = train_test_split(X_tfidf, y_tfidf, test_size=0.2, random_state=42)
@@ -134,7 +154,7 @@ async def main() -> None:
     print("\nClassification Report:")
     print(classification_report(y_val_tfidf, y_val_pred))
 
-    X_test_tfidf = vectorizer.transform(test["Cleaned_text"])
+    X_test_tfidf = vectorizer.transform(test["cleaned_text"])
     test_probs = relevance_model.predict_proba(X_test_tfidf)[:, 1]
     test["Relevant"] = (test_probs > 0.7).astype(int)
 
@@ -144,7 +164,7 @@ async def main() -> None:
 
     #disaster categorization
     disaster_categories = {k: i for i, k in enumerate(list(disaster_keywords.keys()) + ["Other"])}
-    train["category"] = train["Cleaned_text"].apply(categorize_disaster)
+    train["category"] = train["cleaned_text"].apply(categorize_disaster)
     train["category_label"] = train["category"].map(disaster_categories)
 
     #LSTM prep
@@ -153,10 +173,10 @@ async def main() -> None:
     EMBEDDING_DIM = 100
 
     keras_tokenizer = Tokenizer(num_words=MAX_NB_WORDS, lower=True)
-    keras_tokenizer.fit_on_texts(train["Cleaned_text"])
+    keras_tokenizer.fit_on_texts(train["cleaned_text"])
 
-    X_train_seq = keras_tokenizer.texts_to_sequences(train["Cleaned_text"])
-    X_test_seq = keras_tokenizer.texts_to_sequences(relevant_posts["Cleaned_text"])
+    X_train_seq = keras_tokenizer.texts_to_sequences(train["cleaned_text"])
+    X_test_seq = keras_tokenizer.texts_to_sequences(relevant_posts["cleaned_text"])
 
     X_train_seq = pad_sequences(X_train_seq, maxlen=MAX_SEQUENCE_LENGTH)
     X_test_seq = pad_sequences(X_test_seq, maxlen=MAX_SEQUENCE_LENGTH)
@@ -183,12 +203,33 @@ async def main() -> None:
     predictions = model.predict(X_test_seq)
     predicted_categories = predictions.argmax(axis=1)
     reverse_category_map = {v: k for k, v in disaster_categories.items()}
-    relevant_posts["Predicted_Disaster_Type"] = [reverse_category_map[i] for i in predicted_categories]
-    relevant_posts["Location"] = relevant_posts["text"].apply(extract_location)
+    #4_2, relabled to "category" for consistency with database
+        #relevant_posts["Predicted_Disaster_Type"] = [reverse_category_map[i] for i in predicted_categories]
+    relevant_posts["category"] = [reverse_category_map[i] for i in predicted_categories]
+    relevant_posts["location"] = relevant_posts["text"].apply(extract_location)
 
     #final output
     print(relevant_posts[["text", "Predicted_Disaster_Type"]].head(30))
     relevant_posts.to_csv("Bluesky_Disaster_Predictions_With_Relevance.csv", index=False)
+
+    #connect to Vanessa's model, 4_2
+    #Vanessa receives columns: 
+    #post_uri, post_author, post_author_display, text, timeposted, sentiment_score, keyword, location, cleaned_text, category
+    test2 = relevant_posts.copy()                                   # test2 will be used to test Vanessa's LSTM model       
+    test2["sentiment_label"] = None                                 # create additional columns to be filled   
+    test2["prediction"] = None
+    #Vanessa outputs:
+    #post_uri, post_author, post_author_display, post_text, timeposted, sentiment_score, keyword, location, cleaned_text, category, sentiment_label, prediction	
+
+    ## fixme: insert Vanessa's model here ##
+
+    # connect to LSTM_Posts, then insert posts. 4_2
+    try:
+        loadSuccess = await load_LSTM_data()
+        print(loadSuccess)                                  # for debugging, prints when successfully inserted into LSTM_Posts
+    except Exception as e:
+        print(f"Error inserting into LSTM_Posts: {e}")
+
 
 if __name__ == '__main__':
     asyncio.run(main())
