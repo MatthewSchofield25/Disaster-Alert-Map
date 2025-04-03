@@ -29,7 +29,7 @@ import os
 
 driver = '{ODBC Driver 18 for SQL Server}'
 server = os.getenv("DATABASE_SERVER")
-database = os.getenv("DATABASE_NAME")
+database = os.getenv("DATABASE_ONENAME")
 username = os.getenv("DATABASE_USERNAME")
 password = os.getenv("DATABASE_PASSWORD")
 
@@ -90,7 +90,7 @@ async def load_data_test():
     except Exception as e:
         print(f"Error connecting to SQL Server: {e}")
         return None
-    print("Sql server connection successful")
+    print("SQL Server Connection Successful")
     cursor = db.cursor()
     cursor.execute("SELECT * FROM Bluesky_Posts")
     results = cursor.fetchall()
@@ -105,7 +105,6 @@ async def main() -> None:
         test = await load_data_test() 
     except Exception as e:
         print(f"Error fetching posts: {e}")
-    
 
     train["Cleaned_text"] = train["text"].apply(preprocess_data)
     test["Cleaned_text"] = test["text"].apply(preprocess_data)

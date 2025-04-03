@@ -4,141 +4,114 @@ import dash_bootstrap_components as dbc
 from dash import dcc, html
 import plotly.graph_objs as go
 import pandas as pd
+import pyodbc
 import os
+from sklearn.neighbors import NearestNeighbors
+import numpy as np
+
+#Initialize Database Connection
+driver = '{ODBC Driver 18 for SQL Server}'
+server = os.getenv("DATABASE_SERVER")
+database = os.getenv("DATABASE_ONENAME")
+username = os.getenv("DATABASE_USERNAME")
+password = os.getenv("DATABASE_PASSWORD")
 
 # Initialize the Dash app
 app = dash.Dash(__name__, external_stylesheets=[dash_bootstrap_components.themes.BOOTSTRAP])
 
-# Load the datasets
-df = pd.read_csv('https://raw.githubusercontent.com/plotly/datasets/master/gapminder_unfiltered.csv')
+# CODE TO USE FOR LATER ONCE DATABASE IS SET UP
 
-# State map and list
-state_map = {
-    "AK": "Alaska", "AL": "Alabama", "AR": "Arkansas", "AZ": "Arizona", "CA": "California",
-    "CO": "Colorado", "CT": "Connecticut", "DC": "District of Columbia", "DE": "Delaware",
-    "FL": "Florida", "GA": "Georgia", "HI": "Hawaii", "IA": "Iowa", "ID": "Idaho", "IL": "Illinois",
-    "IN": "Indiana", "KS": "Kansas", "KY": "Kentucky", "LA": "Louisiana", "MA": "Massachusetts",
-    "MD": "Maryland", "ME": "Maine", "MI": "Michigan", "MN": "Minnesota", "MO": "Missouri",
-    "MS": "Mississippi", "MT": "Montana", "NC": "North Carolina", "ND": "North Dakota",
-    "NE": "Nebraska", "NH": "New Hampshire", "NJ": "New Jersey", "NM": "New Mexico", "NV": "Nevada",
-    "NY": "New York", "OH": "Ohio", "OK": "Oklahoma", "OR": "Oregon", "PA": "Pennsylvania",
-    "RI": "Rhode Island", "SC": "South Carolina", "SD": "South Dakota", "TN": "Tennessee",
-    "TX": "Texas", "UT": "Utah", "VA": "Virginia", "VT": "Vermont", "WA": "Washington",
-    "WI": "Wisconsin", "WV": "West Virginia", "WY": "Wyoming",
-}
+# try:
+#     db = pyodbc.connect(f'DRIVER={driver};SERVER={server};DATABASE={database};UID={username};PWD={password}')
+# except Exception as e:
+#     print(f"Error connecting to SQL Server: {e}")
+# print("SQL Server Connection Successful")
 
-state_list = list(state_map.keys())
 
-# Load hospital data
-data_dict = {}
-for state in state_list:
-    csv_path = f"data/processed/df_{state}_lat_lon.csv"
-    if os.path.exists(csv_path):  # Check if the file exists
-        state_data = pd.read_csv(csv_path)
-        data_dict[state] = state_data
-    else:
-        print(f"Warning: File not found for state {state} at {csv_path}")
+# # LATER DEVELOPMENT: UTILIZE THE TIMEPOSTED TO ONLY GET THE LAST 31 DAYS OF DATA
+# cursor = db.cursor()
+# cursor.execute("SELECT sentiment_score, Predicted_Disaster_Type, location FROM LSTM_Posts")
+# results = cursor.fetchall()
+# columns = [column[0] for column in cursor.description]
+# df = pd.DataFrame.from_records(results, columns=columns)
 
-def get_lat_lon_add(df, name):
-    return [
-        df.groupby(["Provider Name"]).get_group((name,))["lat"].tolist()[0],
-        df.groupby(["Provider Name"]).get_group((name,))["lon"].tolist()[0],
-        df.groupby(["Provider Name"])
-        .get_group((name,))["Provider Street Address"]
-        .tolist()[0],
-    ]
+# CURRENTLY READING IN THROUGH CSV FILE MADE BY VANESSA
+# LATER DEVELOPMENT: ONCE DATABASE IS SET UP, USE THE CODE ABOVE TO GET THE DATA FROM THE DATABASE
+df = pd.read_csv('Bluesky_Disaster_Predictions_With_Relevance.csv', usecols=['sentiment_score', 'Predicted_Disaster_Type', 'Location'])
 
-def generate_aggregation(df, metric):
-    aggregation = {
-        metric[0]: ["min", "mean", "max"],
-        metric[1]: ["min", "mean", "max"],
-        metric[2]: ["min", "mean", "max"],
-    }
-    grouped = (
-        df.groupby(["Hospital Referral Region (HRR) Description", "Provider Name"])
-        .agg(aggregation)
-        .reset_index()
-    )
+# Aggregate sentiment and count posts per location
+# Can see problem occuring here where if the location is blank those will all be grouped together
+# and will not be able to be plotted on the map. Need to filter out blank locations before this step.
+# Or we can just not plot them on the map.
+# location_stats = df.groupby('Predicted_Disaster_Type').agg(
+#     avg_sentiment=('sentiment_score', 'mean'),
+#     post_count=('Predicted_Disaster_Type', 'count')
+# ).reset_index()
 
-    grouped["lat"] = grouped["lon"] = grouped["Provider Street Address"] = grouped[
-        "Provider Name"
-    ]
-    grouped["lat"] = grouped["lat"].apply(lambda x: get_lat_lon_add(df, x)[0])
-    grouped["lon"] = grouped["lon"].apply(lambda x: get_lat_lon_add(df, x)[1])
-    grouped["Provider Street Address"] = grouped["Provider Street Address"].apply(
-        lambda x: get_lat_lon_add(df, x)[2]
-    )
+# print(location_stats)
 
-    return grouped
+# # Define emergency thresholds
+# emergency_sentiment_threshold = 0  # Adjust as needed
+# emergency_post_count_threshold = 0  # Adjust as needed
 
-# Debug: Print loaded states
-print("Loaded data for states:", data_dict.keys())
+# # Add emergency flag
+# location_stats['emergency'] = (
+#     (location_stats['avg_sentiment'] <= emergency_sentiment_threshold) |
+#     (location_stats['post_count'] >= emergency_post_count_threshold)
+# )
 
-# Cost Metric
-cost_metric = [
-    "Average Covered Charges",
-    "Average Total Payments",
-    "Average Medicare Payments",
-]
+grouped = df.groupby('Predicted_Disaster_Type')
+
+def get_most_frequent_location(group):
+    if group.empty:
+        return pd.Series([None, None, 0], index=['location', 'avg_sentiment', 'post_count']) #Handle empty groups.
+
+    mode_series = group['Location'].mode()
+    most_frequent_location = mode_series.iloc[0] if not mode_series.empty else None #Handle empty modes.
+    avg_sentiment = group['sentiment_score'].mean()
+    post_count = group['Location'].count() # or group['Location'].count()
+    return pd.Series([most_frequent_location, avg_sentiment, post_count], index=['Location', 'avg_sentiment', 'post_count'])
+
+result = grouped.apply(get_most_frequent_location, include_groups=False).reset_index()
+print(result)
+
+# Load location data
+location_data = pd.read_csv("data/US_cities_lat_lon.csv")
+
+# Create a 'location' column in location_data
+location_data['location'] = location_data.apply(
+    lambda row: row['CITY'] if pd.notna(row['CITY']) else (row['STATE_NAME'] if pd.notna(row['STATE_NAME']) else row['COUNTY']),
+    axis=1
+)
+
+result['Location'] = result['Location'].astype(str)
+location_data['location'] = location_data['location'].astype(str)
+
+
+# Merge with location data
+merged_data = pd.merge(result, location_data, left_on='Location', right_on='location')
+
 
 # Mapbox token
 mapbox_access_token = "pk.eyJ1IjoicGxvdGx5bWFwYm94IiwiYSI6ImNrOWJqb2F4djBnMjEzbG50amg0dnJieG4ifQ.Zme1-Uzoi75IaFbieBDl3A"
 
-# Function to generate the hospital map
-def generate_geo_map(geo_data, selected_metric, region_select, procedure_select):
+# Modified generate_geo_map function
+def generate_geo_map(geo_data):
     if geo_data.empty:
         return {"data": [], "layout": {}}
 
-    filtered_data = geo_data[
-        geo_data["Hospital Referral Region (HRR) Description"].isin(region_select)
-    ]
-
-    # Debug: Print columns to verify structure
-    print("Filtered Data Columns:", filtered_data.columns)
-
-    colors = ["#21c7ef", "#76f2ff", "#ff6969", "#ff1717"]
+    lat = geo_data["LATITUDE"].tolist()
+    lon = geo_data["LONGITUDE"].tolist()
+    avg_sentiment = geo_data["avg_sentiment"].tolist()
+    post_count = geo_data["post_count"].tolist()
+    location = geo_data['Location'].tolist()
+    disaster_type = geo_data['Predicted_Disaster_Type'].tolist()
+    
     hospitals = []
 
-    lat = filtered_data["lat"].tolist()
-    lon = filtered_data["lon"].tolist()
-
-    # Access the mean value correctly
-    if isinstance(filtered_data.columns, pd.MultiIndex):
-        # If the DataFrame has hierarchical columns
-        average_covered_charges_mean = filtered_data[(selected_metric, "mean")].tolist()
-    else:
-        # If the DataFrame has flat columns
-        average_covered_charges_mean = filtered_data[selected_metric].tolist()
-
-    regions = filtered_data["Hospital Referral Region (HRR) Description"].tolist()
-    provider_name = filtered_data["Provider Name"].tolist()
-
-    # Cost metric mapping from aggregated data
-    cost_metric_data = {
-        "min": min(average_covered_charges_mean),
-        "max": max(average_covered_charges_mean),
-        "mid": (min(average_covered_charges_mean) + max(average_covered_charges_mean)) / 2,
-        "low_mid": (min(average_covered_charges_mean) + max(average_covered_charges_mean)) / 4,
-        "high_mid": 3 * (min(average_covered_charges_mean) + max(average_covered_charges_mean)) / 4,
-    }
-
     for i in range(len(lat)):
-        val = average_covered_charges_mean[i]
-        region = regions[i]
-        provider = provider_name[i]
-
-        if val <= cost_metric_data["low_mid"]:
-            color = colors[0]
-        elif cost_metric_data["low_mid"] < val <= cost_metric_data["mid"]:
-            color = colors[1]
-        elif cost_metric_data["mid"] < val <= cost_metric_data["high_mid"]:
-            color = colors[2]
-        else:
-            color = colors[3]
-
-        selected_index = []
-        if provider in procedure_select["hospital"]:
-            selected_index = [0]
+        size = 10 * (1 - avg_sentiment[i]) + post_count[i]
+        color = "#21c7ef"
 
         hospital = go.Scattermap(
             lat=[lat[i]],
@@ -146,46 +119,21 @@ def generate_geo_map(geo_data, selected_metric, region_select, procedure_select)
             mode="markers",
             marker=dict(
                 color=color,
-                showscale=True,
-                colorscale=[
-                    [0, "#21c7ef"],
-                    [0.33, "#76f2ff"],
-                    [0.66, "#ff6969"],
-                    [1, "#ff1717"],
-                ],
-                cmin=cost_metric_data["min"],
-                cmax=cost_metric_data["max"],
-                size=10 * (1 + (val + cost_metric_data["min"]) / cost_metric_data["mid"]),
-                colorbar=dict(
-                    x=0.9,
-                    len=0.7,
-                    title=dict(
-                        text="Happening now",
-                        font={"color": "#737a8d", "family": "Open Sans"},
-                        side="top",
-                    ),
-                    #tickmode="array",
-                   # tickvals=[cost_metric_data["min"], cost_metric_data["max"]],
-                   # ticktext=[
-                   #     "${:,.2f}".format(cost_metric_data["min"]),
-                    #    "${:,.2f}".format(cost_metric_data["max"]),
-                   # ],
-                    ticks="outside",
-                    thickness=15,
-                    tickfont={"family": "Open Sans", "color": "#737a8d"},
-                ),
+                size=size,
             ),
             opacity=0.8,
-            selectedpoints=selected_index,
-            selected=dict(marker={"color": "#ffff00"}),
-            customdata=[(provider, region)],
+            customdata=[location[i], disaster_type[i]],
             hoverinfo="text",
-            text=provider + "<br>" + region + "<br>Average Procedure Cost:" + " ${:,.2f}".format(val),
+            text=f"{location[i]} ({disaster_type[i]})<br>Avg Sentiment: {avg_sentiment[i]:.2f}<br>Post Count: {post_count[i]}"
         )
         hospitals.append(hospital)
 
     layout = go.Layout(
         margin=dict(l=10, r=10, t=20, b=10, pad=5),
+        geo = dict(
+            scope = 'usa',
+            landcolor = 'rgb(217, 217, 217)',
+        ),
         plot_bgcolor="#171b26",
         paper_bgcolor="#171b26",
         clickmode="event+select",
@@ -195,7 +143,7 @@ def generate_geo_map(geo_data, selected_metric, region_select, procedure_select)
             accesstoken=mapbox_access_token,
             bearing=10,
             center=go.layout.mapbox.Center(
-                lat=filtered_data.lat.mean(), lon=filtered_data.lon.mean()
+                lat=geo_data.LATITUDE.mean(), lon=geo_data.LONGITUDE.mean()
             ),
             pitch=5,
             zoom=5,
@@ -204,7 +152,6 @@ def generate_geo_map(geo_data, selected_metric, region_select, procedure_select)
     )
 
     return {"data": hospitals, "layout": layout}
-
 
 navbar = dbc.Navbar(
     dbc.Container(
@@ -283,24 +230,10 @@ def toggle_navbar_collapse(n_clicks, is_open):
         return not is_open
     return is_open
 
-
-# Generate the hospital map directly
-if not data_dict:
-    hospital_map_figure = {"data": [], "layout": {}}
-else:
-    # Use the first state's data for demonstration
-    state = state_list[0]
-    if state not in data_dict:
-        hospital_map_figure = {"data": [], "layout": {}}
-    else:
-        state_data = data_dict[state]
-        aggregated_data = generate_aggregation(state_data, cost_metric)
-        regions = state_data["Hospital Referral Region (HRR) Description"].unique()
-        hospital_map_figure = generate_geo_map(aggregated_data, cost_metric[0], regions, {"hospital": []})
+hospital_map_figure = generate_geo_map(merged_data)
 
 # Update the layout with the generated figure
 app.layout['hospital-map'].figure = hospital_map_figure
-
 # Run the app
 if __name__ == '__main__':
-    app.run_server(debug=True)
+    app.run(debug=True, host='127.0.0.1', port = 8050)
