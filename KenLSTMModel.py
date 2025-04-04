@@ -100,7 +100,7 @@ async def load_data_test():
     return test
 
 #loads Vanessa's model output into the table LSTM_Posts, 4_2
-async def load_LSTM_data():
+async def send_LSTM_data():
     try:
         conn = pyodbc.connect(f'DRIVER={driver};SERVER={server};DATABASE={database};UID={username};PWD={password}')
     except Exception as e:
@@ -209,13 +209,14 @@ async def main() -> None:
     relevant_posts["location"] = relevant_posts["text"].apply(extract_location)
 
     #final output
-    print(relevant_posts[["text", "Predicted_Disaster_Type"]].head(30))
+    print(relevant_posts[["text", "category"]].head(30))
     relevant_posts.to_csv("Bluesky_Disaster_Predictions_With_Relevance.csv", index=False)
 
     #connect to Vanessa's model, 4_2
     #Vanessa receives columns: 
     #post_uri, post_author, post_author_display, text, timeposted, sentiment_score, keyword, location, cleaned_text, category
     test2 = relevant_posts.copy()                                   # test2 will be used to test Vanessa's LSTM model       
+    test2 = test2.drop("Relevant", axis=1, inplace=True)
     test2["sentiment_label"] = None                                 # create additional columns to be filled   
     test2["prediction"] = None
     #Vanessa outputs:
@@ -225,7 +226,7 @@ async def main() -> None:
 
     # connect to LSTM_Posts, then insert posts. 4_2
     try:
-        loadSuccess = await load_LSTM_data()
+        loadSuccess = await send_LSTM_data()
         print(loadSuccess)                                  # for debugging, prints when successfully inserted into LSTM_Posts
     except Exception as e:
         print(f"Error inserting into LSTM_Posts: {e}")
