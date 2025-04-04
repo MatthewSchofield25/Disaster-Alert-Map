@@ -95,6 +95,7 @@ merged_data = pd.merge(result, location_data, left_on='Location', right_on='loca
 # Mapbox token
 mapbox_access_token = "pk.eyJ1IjoicGxvdGx5bWFwYm94IiwiYSI6ImNrOWJqb2F4djBnMjEzbG50amg0dnJieG4ifQ.Zme1-Uzoi75IaFbieBDl3A"
 
+
 # Modified generate_geo_map function
 def generate_geo_map(geo_data):
     if geo_data.empty:
