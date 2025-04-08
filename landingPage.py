@@ -1,10 +1,12 @@
 import dash
 import dash_bootstrap_components.themes
 import dash_bootstrap_components as dbc
+from click import style
 from dash import dcc, html
 import plotly.graph_objs as go
 import pandas as pd
 import os
+import numpy as np
 
 # Initialize the Dash app
 app = dash.Dash(__name__, external_stylesheets=[dash_bootstrap_components.themes.BOOTSTRAP])
@@ -26,6 +28,21 @@ state_map = {
     "TX": "Texas", "UT": "Utah", "VA": "Virginia", "VT": "Vermont", "WA": "Washington",
     "WI": "Wisconsin", "WV": "West Virginia", "WY": "Wyoming",
 }
+
+valid_categories = {'Flood', 'Drought', 'Landslide', 'Volcano', 'Blizzard',
+                        'Earthquake', 'Tsunami', 'Wildfire', 'Hurricane', 'Tornado', 'Other'}
+
+# Create mock sentiment data if 'category' column doesn't exist
+if 'category' not in df.columns:
+    dates = pd.date_range(start='2023-01-01', end='2023-12-31', freq='D')
+    categories = list(valid_categories)
+
+    mock_data = {
+        'date': np.random.choice(dates, size=1000),
+        'sentiment': np.random.uniform(-1, 1, size=1000),
+        'category': np.random.choice(categories, size=1000)
+    }
+    df = pd.DataFrame(mock_data)
 
 state_list = list(state_map.keys())
 
@@ -187,20 +204,23 @@ def generate_geo_map(geo_data, selected_metric, region_select, procedure_select)
     layout = go.Layout(
         margin=dict(l=10, r=10, t=20, b=10, pad=5),
         plot_bgcolor="#171b26",
-        paper_bgcolor="#171b26",
+        paper_bgcolor="rgba(0,0,0,0)",
         clickmode="event+select",
         hovermode="closest",
         showlegend=False,
         mapbox=go.layout.Mapbox(
             accesstoken=mapbox_access_token,
-            bearing=10,
+            bearing=0,
             center=go.layout.mapbox.Center(
-                lat=filtered_data.lat.mean(), lon=filtered_data.lon.mean()
+                lat = 37.0902,
+                lon = -95.7129
             ),
-            pitch=5,
-            zoom=5,
+            pitch=0,
+            zoom=3,
             style="mapbox://styles/plotlymapbox/cjvppq1jl1ips1co3j12b9hex",
-        ),
+            bounds=dict(west=-125, east=-66, south=24, north=50),  # Continental US
+
+        )
     )
 
     return {"data": hospitals, "layout": layout}
@@ -264,13 +284,315 @@ navbar = dbc.Navbar(
     dark=True,
 )
 
-# Define the layout
-app.layout = html.Div([
-    navbar,
-    html.H1(children='Natural Disaster Sentiment Analysis', style={'textAlign': 'left'}),
-    html.H2(children='Current Events', style={'textAlign': 'center'}),
-    dcc.Graph(id='hospital-map'),
-])
+sidebar = html.Div(
+    style={"padding": "20px", "maxWidth": "350px", "margin": "right"},
+    children=[
+        dbc.Stack(
+            [
+                dbc.InputGroup(
+                    [
+                        dbc.Input(type="search", placeholder="Search"),
+                        dbc.Button("Search", color="secondary", className="ms-2"),
+                    ],
+                    className="mb-3",
+
+                ),
+                dbc.Card(
+                    [
+                        dbc.CardHeader(
+                            html.A(
+                                "LA Wildfire",
+                                href = "#",
+                                style = {
+                                    "color": "inherit",
+                                    "text-decoration": "none",
+                                    "display": "block",
+                                    "width": "200px",
+                                    "height": "50px",
+                                    # font and text aligment
+                                    "text-align": "left",
+                                    "font-size": "clamp(12px,2vw,20px)",
+                                    "white-space": "nowrap",
+                                    "overflow": "hidden",
+                                    "text-overflow": "ellipsis",
+                                    "font-weight": "bold",
+                                    "padding": "0.5rem"
+
+                                }
+
+                            ),
+                            style = {"padding":0}
+                        ),
+                        #dbc.CardBody("Lorem ipsum"),
+
+                    ],
+                    style={"margin-bottom": "1rem"},
+                ),
+                dbc.Card(
+                    [
+                        dbc.CardHeader(
+                            html.A(
+                                "Florida Hurricane",
+                                href="#",
+                                style={
+                                    "color": "inherit",
+                                    "text-decoration": "none",
+                                    "display": "block",
+                                    "width": "200px",
+                                    "height": "50px",
+                                    # font and text aligment
+                                    "text-align": "left",
+                                    "font-size": "clamp(12px,2vw,20px)",
+                                    "white-space": "nowrap",
+                                    "overflow": "hidden",
+                                    "text-overflow": "ellipsis",
+                                    "font-weight": "bold",
+                                    "padding": "0.5rem"
+
+                                }
+
+                            ),
+                            style={"padding": 0}
+                        ),
+                        # dbc.CardBody("Lorem ipsum"),
+
+                    ],
+                    style={"margin-bottom": "1rem"},
+                ),
+                dbc.Card(
+                    [
+                        dbc.CardHeader(
+                            html.A(
+                                "North Texas Freeze",
+                                href="#",
+                                style={
+                                    "color": "inherit",
+                                    "text-decoration": "none",
+                                    "display": "block",
+                                    "width": "200px",
+                                    "height": "50px",
+                                    # font and text aligment
+                                    "text-align": "left",
+                                    "font-size": "clamp(12px,2vw,20px)",
+                                    "white-space": "nowrap",
+                                    "overflow": "hidden",
+                                    "text-overflow": "ellipsis",
+                                    "font-weight": "bold",
+                                    "padding": "0.5rem"
+
+                                }
+
+                            ),
+                            style={"padding": 0}
+                        ),
+                        # dbc.CardBody("Lorem ipsum"),
+
+                    ],
+                    style={"margin-bottom": "1rem"},
+                ),
+                dbc.Card(
+                    [
+                        dbc.CardHeader(
+                            html.A(
+                                "South Carolina Flood",
+                                href="#",
+                                style={
+                                    "color": "inherit",
+                                    "text-decoration": "none",
+                                    "display": "block",
+                                    "width": "200px",
+                                    "height": "50px",
+                                    # font and text aligment
+                                    "text-align": "left",
+                                    "font-size": "clamp(12px,2vw,20px)",
+                                    "white-space": "nowrap",
+                                    "overflow": "hidden",
+                                    "text-overflow": "ellipsis",
+                                    "font-weight": "bold",
+                                    "padding": "0.5rem"
+
+                                }
+
+                            ),
+                            style={"padding": 0}
+                        ),
+                        # dbc.CardBody("Lorem ipsum"),
+
+                    ],
+                    style={"margin-bottom": "1rem"},
+                ),
+            ]
+        )
+    ]
+)
+
+
+def create_sentiment_graph(df, category):
+    category_df = df[df['category'] == category]
+
+    fig = go.Figure()
+
+    fig.add_trace(go.Scatter(
+        x=category_df['date'],
+        y=category_df['sentiment'],
+        mode='lines+markers',
+        name=category
+    ))
+
+    fig.update_layout(
+        title=f'Sentiment Over Time: {category}',
+        yaxis=dict(range=[-1, 1], title='Sentiment Score'),
+        xaxis=dict(title='Date'),
+        hovermode='x unified',
+        height=300,
+        margin=dict(l=40, r=40, t=60, b=40)
+    )
+
+    # Add neutral reference line
+    fig.add_hline(y=0, line_dash='dash', line_color='gray')
+
+    return fig
+
+
+    # Define the layout
+'''
+app.layout = html.Div(
+    style={'backgroundColor': '#f8f9fa'},  # Light background for the page
+    children=[
+        navbar,
+        html.Div(
+            className="container",  # Bootstrap container for proper width control
+            children=[
+                html.H1(
+                    children='Natural Disaster Sentiment Analysis',
+                    style={'textAlign': 'left', 'marginTop': '5px'}
+                ),
+                html.Div(
+                    style={
+                        #controls map box size
+                        'width': '100%',
+                        'marginLeft': '0',
+                        'marginRight': 'auto',
+                    },
+                    children=[
+                        dcc.Graph(
+                            id='hospital-map',
+                            style = {
+                                'height': '500px',
+                                #controls width
+                                'width': '75%',
+                                'borderRadius': '10px',
+                                'boxShadow': '0 4px 8px rgba(0,0,0,0.1)',
+                            },
+                            config={'displayModeBar': True},
+                        )
+                    ]
+                )
+            ]
+         ),
+        sidebar,
+    ]
+)
+'''
+app.layout = html.Div(
+    style={'backgroundColor': '#f8f9fa'},  # Light background for the page
+    children=[
+        navbar,
+        html.Div(
+            className="container",  # Bootstrap container for proper width control
+            children=[
+                html.H1(
+                    children='Natural Disaster Sentiment Analysis',
+                    style={'textAlign': 'left', 'marginTop': '5px'}
+                ),
+                # Flexbox row for sidebar and graph
+                html.Div(
+                    style={
+                        'display': 'flex',  # Flexbox for horizontal alignment
+                        'flexDirection': 'row',  # Row direction
+                        'justifyContent': 'space-between',  # Space between items
+                        'alignItems': 'flex-start',  # Align items at the top
+                        'marginTop': '20px',
+                    },
+                    children=[
+                        # Map on the left
+                        html.Div(
+                            style={
+                                'width': '70%',  # Graph width (adjust as needed)
+                                'marginLeft': '20px',  # Space between sidebar and graph
+                            },
+                            children=[
+                                dcc.Graph(
+                                    id='hospital-map',
+                                    style={
+                                        'height': '500px',
+                                        'width': '100%',
+                                        'borderRadius': '10px',
+                                        'boxShadow': '0 4px 8px rgba(0,0,0,0.1)',
+                                        'margin-bottom': '30px',
+                                    },
+                                    config={'displayModeBar': True},
+                                ),
+
+                            ]
+                        ),
+                        html.Div(
+                            id='sidebar',
+                            style={
+                                'width': '25%',  # Sidebar width (adjust as needed)
+                                'backgroundColor': '#ffffff',
+                                'padding': '15px',
+                                'borderRadius': '10px',
+                                'boxShadow': '0 4px 8px rgba(0,0,0,0.1)',
+                            },
+                            children=sidebar,  # Replace with your sidebar content
+                        ),
+                        # Graph on the right
+
+                    ]
+                ),
+                html.H1(
+                    children='Sentiment Over Time',
+                    style={'textAlign': 'left', 'marginTop': '5px'}
+                ),
+
+                html.Div(
+                    dbc.Tabs([
+                        dbc.Tab(
+                            dcc.Graph(
+                                id=f'graph-{category}',
+                                figure = create_sentiment_graph(df, category),
+
+                            ),
+                            label = category
+                        )
+                        for category in sorted(valid_categories)
+
+                    ])
+                ),
+
+                '''
+                html.Div(
+                    dcc.Graph(
+                        id = 'sentiment timeline',
+                        figure = generate_sentiment_timeline(),
+                        style={
+                            'margin-top': '30px',
+                            'margin-bottom': '30px',
+                            'height': '500px',
+                            'width': '100%',
+                            'borderRadius': '10px',
+                            'boxShadow': '0 4px 8px rgba(0,0,0,0.1)',
+                            'backgroundColor': 'white',
+                        }
+                    )
+                )
+                '''
+            ]
+        )
+    ]
+)
+
 
 @app.callback(
     dash.dependencies.Output("navbar-collapse", "is_open"),
@@ -303,4 +625,4 @@ app.layout['hospital-map'].figure = hospital_map_figure
 
 # Run the app
 if __name__ == '__main__':
-    app.run_server(debug=True)
+    app.run(debug=True)
