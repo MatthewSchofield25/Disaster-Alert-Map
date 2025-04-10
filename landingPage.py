@@ -11,7 +11,7 @@ import numpy as np
 # Initialize the Dash app
 app = dash.Dash(__name__, external_stylesheets=[dash_bootstrap_components.themes.BOOTSTRAP])
 
-# Load the datasets
+# Load the datasets for
 df = pd.read_csv('https://raw.githubusercontent.com/plotly/datasets/master/gapminder_unfiltered.csv')
 
 # State map and list
@@ -32,11 +32,16 @@ state_map = {
 valid_categories = {'Flood', 'Drought', 'Landslide', 'Volcano', 'Blizzard',
                         'Earthquake', 'Tsunami', 'Wildfire', 'Hurricane', 'Tornado', 'Other'}
 
-# Create mock sentiment data if 'category' column doesn't exist
-if 'category' not in df.columns:
+try:
+    # Load your CSV file (adjust path if needed)
+    df = pd.read_csv('sentiment_data.csv')
+    # Ensure date is in datetime format
+    df['date'] = pd.to_datetime(df['date'])
+except FileNotFoundError:
+    print("Error: sentiment_data.csv not found. Using mock data instead.")
+    # Fallback to mock data if file not found
     dates = pd.date_range(start='2023-01-01', end='2023-12-31', freq='D')
     categories = list(valid_categories)
-
     mock_data = {
         'date': np.random.choice(dates, size=1000),
         'sentiment': np.random.uniform(-1, 1, size=1000),
@@ -98,7 +103,8 @@ cost_metric = [
     "Average Medicare Payments",
 ]
 
-# Mapbox token
+# Mapbox token, this is a public key, there are no
+# issues posting this on the internet
 mapbox_access_token = "pk.eyJ1IjoicGxvdGx5bWFwYm94IiwiYSI6ImNrOWJqb2F4djBnMjEzbG50amg0dnJieG4ifQ.Zme1-Uzoi75IaFbieBDl3A"
 
 # Function to generate the hospital map
@@ -225,6 +231,169 @@ def generate_geo_map(geo_data, selected_metric, region_select, procedure_select)
 
     return {"data": hospitals, "layout": layout}
 
+
+def create_sentiment_graph(filtered_df):
+    """
+    Creates a sentiment trend graph for a specific location and disaster type
+
+    Args:
+        filtered_df: DataFrame containing columns 'date', 'sentiment_score',
+                    'location', and 'disaster_type'
+
+    Returns:
+        plotly.graph_objects.Figure: The generated sentiment graph
+    """
+    fig = go.Figure()
+
+    #fig.add_trace adds a new data series to the figure
+    fig.add_trace(
+        go.Scatter( #uses scatter plot but will act as a line graph
+        x=filtered_df['date'],
+        y=filtered_df['sentiment_score'],
+        mode='lines+markers', #creates lines between points and at each point add a marker
+        line=dict(color='#1f77b4', width=2), # blue line with a width of 2 pixels
+        marker=dict(size=6), #configures the marker portion of the mode line, makes the diameter 6 pixels
+        name='Sentiment',
+        hovertemplate=(
+            '<b>Date</b>: %{x|%Y-%m-%d}<br>' #bolds Date and formats x into YYYY-MM-DD, <br> = line break
+            '<b>Sentiment</b>: %{y:.2f}<extra></extra>' # bold sentiment, formats y values w percision of 2
+        ) # hovering over a marker displays data, <extra></extra> gets rid displaying the name component
+    ))
+
+    # Add horizontal reference lines
+    fig.add_hline(
+        y=0,
+        line_dash='dash',
+        line_color='gray',
+        annotation_text="Neutral",
+        annotation_position="bottom right"
+    )
+    fig.add_hline(
+        y=1,
+        line_dash='dot',
+        line_color='green',
+        opacity=0.3
+    )
+    fig.add_hline(
+        y=-1,
+        line_dash='dot',
+        line_color='red',
+        opacity=0.3
+    )
+
+    # Get location and disaster type for title
+    location = filtered_df['location'].iloc[0] #iloc = integer location, grabs first unique value
+    disaster_type = filtered_df['disaster_type'].iloc[0]
+
+    fig.update_layout(
+        title=f'{location} {disaster_type} Sentiment Trend',
+        xaxis_title='Date',
+        yaxis_title='Sentiment Score',
+        yaxis=dict(range=[-1, 1]),
+        hovermode='x unified',
+        plot_bgcolor='white',
+        margin=dict(l=40, r=40, t=60, b=40),
+        height=300,
+        xaxis=dict(
+            rangeselector=dict(
+                buttons=list([
+                    dict(count=7, label="1w", step="day", stepmode="backward"),
+                    dict(count=14, label="2w", step="day", stepmode="backward"),
+                    dict(step="all")
+                ])
+            ),
+            rangeslider=dict(visible=True),
+            type="date"
+        )
+    )
+
+    return fig
+
+
+def calculate_top_disasters(df):
+    """
+    Calculate top disasters based on sentiment change between:
+    - 31-day average sentiment (days 1-31 ago)
+    - 10-day average sentiment (most recent 10 days)
+
+    Returns: List of dictionaries containing ranked disasters
+    """
+    # Convert date and filter out invalid dates
+    df['date'] = pd.to_datetime(df['date'], errors='coerce')
+    df = df.dropna(subset=['date'])
+
+    if df.empty:
+        print("No valid data after date cleaning")
+        return []
+
+    # Get most recent date in data
+    most_recent_date = df['date'].max()
+
+    # Define time windows - comparing recent 10 days vs previous 31 days
+    recent_10_days = most_recent_date - pd.Timedelta(days=10)
+    comparison_31_days = most_recent_date - pd.Timedelta(days=31)  # 31 days ending 10 days ago
+
+    try:
+        # Filter data for time periods
+        recent_data = df[df['date'] > recent_10_days]
+        comparison_data = df[(df['date'] > comparison_31_days) &
+                             (df['date'] <= recent_10_days)]
+
+        # Calculate average sentiment for each period
+        avg_recent = recent_data.groupby(['location', 'disaster_type'])['sentiment_score'] \
+            .mean().reset_index() \
+            .rename(columns={'sentiment_score': 'recent_10day_avg'})
+
+        avg_comparison = comparison_data.groupby(['location', 'disaster_type'])['sentiment_score'] \
+            .mean().reset_index() \
+            .rename(columns={'sentiment_score': 'previous_31day_avg'})
+
+        # Merge the averages
+        merged = avg_comparison.merge(
+            avg_recent,
+            on=['location', 'disaster_type'],
+            how='inner'  # Only include disasters present in both periods
+        ).fillna({'recent_10day_avg': 0, 'previous_31day_avg': 0})
+
+        # Calculate metrics
+        merged['sentiment_change'] = merged['recent_10day_avg'] - merged['previous_31day_avg']
+
+        # New ranking formula that considers:
+        # 1. Current sentiment level (more negative = worse)
+        # 2. Magnitude of negative change
+        # 3. Recent activity level
+        merged['severity_score'] = (
+                (1 - merged['recent_10day_avg']) *  # Base severity (0-2 range)
+                (1 + (merged['previous_31day_avg'] - merged['recent_10day_avg'])) *  # Change impact
+                20  # Scaling factor
+        ).round(2)
+
+        # Add mention counts
+        mention_counts = recent_data.groupby(['location', 'disaster_type']).size()
+        merged = merged.join(mention_counts.rename('recent_mentions'), on=['location', 'disaster_type'])
+
+        # Filter and rank - require minimum 5 mentions in recent period
+        ranked_disasters = merged[merged['recent_mentions'] >= 5] \
+            .nlargest(4, 'severity_score')
+
+        return [
+            {
+                "rank": i + 1,
+                "location": row['location'],
+                "disaster": row['disaster_type'],
+                "severity": row['severity_score'],
+                "current_sentiment": round(row['recent_10day_avg'], 2),
+                "previous_sentiment": round(row['previous_31day_avg'], 2),
+                "trend": "↑" if row['sentiment_change'] > 0 else "↓",
+                "mention_count": int(row['recent_mentions']),
+                "change_magnitude": abs(row['sentiment_change'])
+            }
+            for i, (_, row) in enumerate(ranked_disasters.iterrows())
+        ]
+
+    except Exception as e:
+        print(f"Error calculating top disasters: {str(e)}")
+        return []
 
 navbar = dbc.Navbar(
     dbc.Container(
@@ -427,73 +596,7 @@ sidebar = html.Div(
 )
 
 
-def create_sentiment_graph(df, category):
-    category_df = df[df['category'] == category]
-
-    fig = go.Figure()
-
-    fig.add_trace(go.Scatter(
-        x=category_df['date'],
-        y=category_df['sentiment'],
-        mode='lines+markers',
-        name=category
-    ))
-
-    fig.update_layout(
-        title=f'Sentiment Over Time: {category}',
-        yaxis=dict(range=[-1, 1], title='Sentiment Score'),
-        xaxis=dict(title='Date'),
-        hovermode='x unified',
-        height=300,
-        margin=dict(l=40, r=40, t=60, b=40)
-    )
-
-    # Add neutral reference line
-    fig.add_hline(y=0, line_dash='dash', line_color='gray')
-
-    return fig
-
-
     # Define the layout
-'''
-app.layout = html.Div(
-    style={'backgroundColor': '#f8f9fa'},  # Light background for the page
-    children=[
-        navbar,
-        html.Div(
-            className="container",  # Bootstrap container for proper width control
-            children=[
-                html.H1(
-                    children='Natural Disaster Sentiment Analysis',
-                    style={'textAlign': 'left', 'marginTop': '5px'}
-                ),
-                html.Div(
-                    style={
-                        #controls map box size
-                        'width': '100%',
-                        'marginLeft': '0',
-                        'marginRight': 'auto',
-                    },
-                    children=[
-                        dcc.Graph(
-                            id='hospital-map',
-                            style = {
-                                'height': '500px',
-                                #controls width
-                                'width': '75%',
-                                'borderRadius': '10px',
-                                'boxShadow': '0 4px 8px rgba(0,0,0,0.1)',
-                            },
-                            config={'displayModeBar': True},
-                        )
-                    ]
-                )
-            ]
-         ),
-        sidebar,
-    ]
-)
-'''
 app.layout = html.Div(
     style={'backgroundColor': '#f8f9fa'},  # Light background for the page
     children=[
@@ -551,6 +654,59 @@ app.layout = html.Div(
 
                     ]
                 ),
+
+                print("Final top disasters data:", calculate_top_disasters(df)),
+                html.H1(
+                    children='Top 4 Disasters Happening Now',
+                    style={'textAlign': 'left', 'marginTop': '30px', 'marginBottom': '15px'}
+                ),
+
+                dbc.Tabs(
+                    [
+                        dbc.Tab(
+                            label=f"#{disaster['rank']} {disaster['location']} {disaster['disaster']} {disaster['trend']}",
+                            tab_style={"margin": "5px", "padding": "10px"},
+                            active_label_style={
+                                "color": "white",
+                                "backgroundColor": "#007BFF",
+                                "fontWeight": "bold"
+                            },
+                            children=[
+                                html.Div(
+                                    style={'padding': '20px'},
+                                    children=[
+                                        html.H3(f"{disaster['location']} {disaster['disaster']}"),
+                                        html.P([
+                                            html.Strong("Current Severity: "),
+                                            f"{disaster['severity']}",
+                                            html.Br(),
+                                            html.Strong("Current Sentiment: "),
+                                            f"{disaster['current_sentiment']}",
+                                            html.Br(),
+                                            html.Strong("Trend: "),
+                                            html.Span(
+                                                disaster['trend'],
+                                                style={
+                                                    'color': 'green' if disaster['trend'] == '↑' else 'red',
+                                                    'fontWeight': 'bold'
+                                                }
+                                            )
+                                        ]),
+                                        dcc.Graph(
+                                            figure=create_sentiment_graph(
+                                                df[(df['location'] == disaster['location']) &
+                                                   (df['disaster_type'] == disaster['disaster'])]
+                                            ),
+                                            style={'height': '300px'}
+                                        )
+                                    ]
+                                )
+                            ]
+                        )
+                        for disaster in calculate_top_disasters(df)  # Make sure this returns data
+                    ],
+                    style={'marginBottom': '30px'}
+                ),
                 html.H1(
                     children='Sentiment Over Time',
                     style={'textAlign': 'left', 'marginTop': '5px'}
@@ -561,33 +717,18 @@ app.layout = html.Div(
                         dbc.Tab(
                             dcc.Graph(
                                 id=f'graph-{category}',
-                                figure = create_sentiment_graph(df, category),
+                                figure = create_sentiment_graph(
+                                    df[df['disaster_type'] == category]
+                                ),
+                                style={'height': '300px'}
 
                             ),
                             label = category
                         )
-                        for category in sorted(valid_categories)
+                        for category in valid_categories
 
                     ])
                 ),
-
-                '''
-                html.Div(
-                    dcc.Graph(
-                        id = 'sentiment timeline',
-                        figure = generate_sentiment_timeline(),
-                        style={
-                            'margin-top': '30px',
-                            'margin-bottom': '30px',
-                            'height': '500px',
-                            'width': '100%',
-                            'borderRadius': '10px',
-                            'boxShadow': '0 4px 8px rgba(0,0,0,0.1)',
-                            'backgroundColor': 'white',
-                        }
-                    )
-                )
-                '''
             ]
         )
     ]
