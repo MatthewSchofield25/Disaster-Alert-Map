@@ -42,6 +42,7 @@ from tensorflow.keras.layers import Dense
 from keras.optimizers import Adam,SGD
 from tensorflow.keras import regularizers
 from tensorflow.keras.callbacks import *
+import datetime
 n_epoch = 30
 
 load_dotenv() #load the .env file
@@ -104,13 +105,13 @@ def extract_location(text):
     return ", ".join(locations) if locations else "None"
 
 #loading data, need to convert to pydobc
-async def load_data_train():
+def load_data_train():
     train = pd.read_csv("train.csv")
     train.rename(columns={"Text": "text", "Label": "target"}, inplace=True)
     train["target"] = train["target"].astype(int)
     return train
 
-async def load_data_test():
+def load_data_test():
     try:
         db = pyodbc.connect(f'DRIVER={driver};SERVER={server};DATABASE={database};UID={username};PWD={password}')
     except Exception as e:
@@ -118,7 +119,21 @@ async def load_data_test():
         return None
     print("SQL server connection successful: connected to Bluesky_Posts")
     cursor = db.cursor()
-    cursor.execute("SELECT * FROM Bluesky_Posts")
+
+    # calculate one hour ago
+    last_hour = datetime.datetime.now() - datetime.timedelta(hours=1)
+    sql_time = last_hour.strftime('%Y-%m-%d %H:%M:%S')  # format time for SQL server
+
+    print(f"Fetching posts after time: {sql_time}")
+
+    query = """
+    SELECT * FROM Bluesky_Posts 
+    WHERE timeposted >= ?
+    """
+
+    #cursor.execute("SELECT * FROM Bluesky_Posts")
+    cursor.execute(query, (sql_time,)) #fixme
+    
     results = cursor.fetchall()
     columns = [column[0] for column in cursor.description]
     test = pd.DataFrame.from_records(results, columns=columns)
@@ -129,7 +144,7 @@ async def load_data_test():
     return test
 
 #loads Vanessa's model output into the table LSTM_Posts, 4_2
-async def send_LSTM_data(relevant_posts):
+def send_LSTM_data(relevant_posts):
     try:
         conn = pyodbc.connect(f'DRIVER={driver};SERVER={server};DATABASE={database};UID={username};PWD={password}')
     except Exception as e:
@@ -482,10 +497,10 @@ def run_model2(relevant_posts):
     
     return relevant_posts    
 
-async def main() -> None:
+def main() -> None:
     try:
-        train = await load_data_train() # train data will always remain the same
-        test = await load_data_test() 
+        train = load_data_train() # train data will always remain the same
+        test = load_data_test() 
     except Exception as e:
         print(f"Error fetching posts: {e}")
     
@@ -502,10 +517,10 @@ async def main() -> None:
     
     # connect to LSTM_Posts, then insert posts. 4_2
     try:
-        loadSuccess = await send_LSTM_data(relevant_posts)
+        loadSuccess = send_LSTM_data(relevant_posts)
         print(loadSuccess)                                  # for debugging, prints when successfully inserted into LSTM_Posts
     except Exception as e:
         print(f"Error inserting into LSTM_Posts: {e}")
 
 if __name__ == '__main__':
-    asyncio.run(main())
+    main()
