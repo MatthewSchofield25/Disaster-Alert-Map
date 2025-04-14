@@ -5,6 +5,7 @@ from click import style
 from dash import dcc, html
 import plotly.graph_objs as go
 import pandas as pd
+import pyodbc
 import os
 from sklearn.neighbors import NearestNeighbors
 import numpy as np
@@ -41,6 +42,11 @@ df['location'] = df['location'].replace({'None': np.nan})
 
 # # Define emergency thresholds
 # emergency_sentiment_threshold = 0  # Adjust as needed
+# emergency_post_count_threshold = 0  # Adjust as needed
+
+# # Add emergency flag
+# location_stats['emergency'] = (
+#     (location_stats['avg_sentiment'] <= emergency_sentiment_threshold) |
 #     (location_stats['post_count'] >= emergency_post_count_threshold)
 # )
 
@@ -94,6 +100,11 @@ mapbox_access_token = os.getenv("MAP_ACCESSKEY")
 
 
 # Modified generate_geo_map function
+def generate_geo_map(geo_data):
+    if geo_data.empty:
+        return {"data": [], "layout": {}}
+
+    lat = geo_data["LATITUDE"].tolist()
     lon = geo_data["LONGITUDE"].tolist()
     avg_sentiment = geo_data["avg_sentiment"].tolist()
     post_count = geo_data["post_count"].tolist()
@@ -110,6 +121,12 @@ mapbox_access_token = os.getenv("MAP_ACCESSKEY")
             lat=[lat[i]],
             lon=[lon[i]],
             mode="markers",
+            marker=dict(
+                color=color,
+                size=size,
+            ),
+            opacity=0.8,
+            customdata=[location[i], disaster_type[i]],
             hoverinfo="text",
             text=f"{location[i]} ({disaster_type[i]})<br>Avg Sentiment: {avg_sentiment[i]:.2f}<br>Post Count: {post_count[i]}"
         )
@@ -117,6 +134,14 @@ mapbox_access_token = os.getenv("MAP_ACCESSKEY")
 
     layout = go.Layout(
         margin=dict(l=10, r=10, t=20, b=10, pad=5),
+        geo = dict(
+            scope = 'usa',
+            landcolor = 'rgb(217, 217, 217)',
+        ),
+        plot_bgcolor="#171b26",
+        paper_bgcolor="#171b26",
+        clickmode="event+select",
+        hovermode="closest",
         showlegend=False,
         mapbox=go.layout.Mapbox(
             accesstoken=mapbox_access_token,
@@ -344,6 +369,15 @@ def calculate_top_disasters(df):
 
 navbar = dbc.Navbar(
     dbc.Container(
+        [
+            dbc.NavbarBrand("CS Project", href="#"),  # Navbar brand
+            dbc.NavbarToggler(id="navbar-toggler"),  # Navbar toggler button
+
+            dbc.Collapse(
+                dbc.Row(
+                    [
+                        # Left-aligned navigation links
+                        dbc.Col(
                             dbc.Nav(
                                 [
                                     dbc.NavItem(dbc.NavLink("Home", href="#", active=True)),
@@ -362,6 +396,7 @@ navbar = dbc.Navbar(
                                 ],
                                 className="me-auto",  # Align links to the left
                             ),
+                            width="auto",
                         ),
 
                         # Right-aligned search bar
@@ -377,6 +412,15 @@ navbar = dbc.Navbar(
                     ],
                     justify="between",  # Distribute space between links and search
                     className="g-0 w-100",  # Remove gutters and take full width
+                ),
+                id="navbar-collapse",
+                is_open=False,
+                navbar=True,
+            ),
+        ],
+        fluid=True,  # Make the container fluid
+    ),
+    color="primary",
     dark=True,
 )
 
@@ -663,6 +707,12 @@ app.layout = html.Div(
 
 @app.callback(
     dash.dependencies.Output("navbar-collapse", "is_open"),
+    dash.dependencies.Input("navbar-toggler", "n_clicks"),
+    dash.dependencies.State("navbar-collapse", "is_open"),
+)
+
+def toggle_navbar_collapse(n_clicks, is_open):
+    if n_clicks:
         return not is_open
     return is_open
 
