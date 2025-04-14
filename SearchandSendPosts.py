@@ -1,14 +1,24 @@
 import asyncio
 import datetime
+import prisma
 from prisma import Prisma
 from atproto import Client
 from prisma.models import Bluesky_Posts
 import os
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 from decimal import Decimal, ROUND_DOWN
+from dotenv import load_dotenv
+import sys
+load_dotenv() #load the .env file
 
 BSKY_USERNAME = os.getenv("BSKY_USERNAME")  # Your Bluesky username
 BSKY_APP_PASSWORD = os.getenv("BSKY_APP_PASSWORD")  # Bluesky App Password
+
+driver = '{ODBC Driver 18 for SQL Server}'
+server = os.getenv("DATABASE_SERVER")
+db = os.getenv("DATABASE_NAME")
+username = os.getenv("DATABASE_USERNAME")
+password = os.getenv("DATABASE_PASSWORD")
 
 # Initialize Bluesky client
 client = Client()
@@ -19,8 +29,8 @@ async def main() -> None:
     db = Prisma(auto_register=True)
     await db.connect()
 
-    for keyword in ["Tornado", "Hurricane", "Wildfire", "Tsunami", "Earthquake", "Flood", "Blizzard", "Other", "Weather", "Disaster","Emergency","Alert","Warning","Watch","Tracker","Report","Update","News","Info","Help","Support","Assistance","Rescue","Relief","Aid","Donation","Volunteer","Shelter","Evacuation","Preparedness","Safety","Security","Protection","Survival","Recovery","Response","Mitigation","Advisory","Guidance","Recommendation", "blast","blaze","blazing","blizzard","blood","bloodshed","blown","blown-over","blown-up","blownout","blownover","blownup","bluster","blustery","bomb","blaze","cyclone","damage","danger","dangerous","dead","death","debris","destruction","devastate","devastated","devastating","devastation","disaster","displaced","drought","drown","drowned","drowning","dust","duststorm","earthquake","emergency","evacuate","evacuated","evacuating","evacuation","explode","exploded","explosion","explosive","famine","fatal","fatalities","fatality","fear","fire","flood","flooding","floods","forestfire","gas","gasleak","gust","gusty","hail","hailstorm","hazard","hazardous","hazards","heat","heatwave","helicopter","help","hurricane","injured","injuries","injury","landslide","lava","lightning","mud","mudslide","naturaldisaster","nuclear","nuclearfallout","nuclearmeltdown","nuclearwaste","nuclearwinter","outbreak","overcast","overheat","overheated","overheating","overpower","overpowered","overpowering","overwhelm","overwhelmed","overwhelming","panic","panicked","panicking","paralyze","paralyzed","paralyzing","plague","plagued","plaguing","pollution","poweroutage","radiation","rain","rainstorm","rescue","rescued","rescuer","rescuers","rescuing","reservoir","resilience","resilient","resistance","resistant","respond","responded","responding","response","restoration","restore","restored","restoring","restraint","restrict","restricted","restricting","restriction","restrictive","retreat","retreated","retreating","retreats"]:
-
+    for keyword in ["Hurricane"]: #fixme, remove. used for testing
+    #for keyword in ["Tornado", "Hurricane", "Wildfire", "Tsunami", "Earthquake", "Flood", "Blizzard", "Other", "Weather", "Disaster","Emergency","Alert","Warning","Watch","Tracker","Report","Update","News","Info","Help","Support","Assistance","Rescue","Relief","Aid","Donation","Volunteer","Shelter","Evacuation","Preparedness","Safety","Security","Protection","Survival","Recovery","Response","Mitigation","Advisory","Guidance","Recommendation", "blast","blaze","blazing","blizzard","blood","bloodshed","blown","blown-over","blown-up","blownout","blownover","blownup","bluster","blustery","bomb","blaze","cyclone","damage","danger","dangerous","dead","death","debris","destruction","devastate","devastated","devastating","devastation","disaster","displaced","drought","drown","drowned","drowning","dust","duststorm","earthquake","emergency","evacuate","evacuated","evacuating","evacuation","explode","exploded","explosion","explosive","famine","fatal","fatalities","fatality","fear","fire","flood","flooding","floods","forestfire","gas","gasleak","gust","gusty","hail","hailstorm","hazard","hazardous","hazards","heat","heatwave","helicopter","help","hurricane","injured","injuries","injury","landslide","lava","lightning","mud","mudslide","naturaldisaster","nuclear","nuclearfallout","nuclearmeltdown","nuclearwaste","nuclearwinter","outbreak","overcast","overheat","overheated","overheating","overpower","overpowered","overpowering","overwhelm","overwhelmed","overwhelming","panic","panicked","panicking","paralyze","paralyzed","paralyzing","plague","plagued","plaguing","pollution","poweroutage","radiation","rain","rainstorm","rescue","rescued","rescuer","rescuers","rescuing","reservoir","resilience","resilient","resistance","resistant","respond","responded","responding","response","restoration","restore","restored","restoring","restraint","restrict","restricted","restricting","restriction","restrictive","retreat","retreated","retreating","retreats"]:
         # Get posts as tuples
         rows = search_posts_and_send(keyword)
 
@@ -67,10 +77,9 @@ async def main() -> None:
                 await asyncio.sleep(10)
 
             print()
-
     await db.disconnect()
 
-async def validate_post_data(post_data):
+def validate_post_data(post_data):
     required_keys = ["post_uri", "post_author", "post_text", "timeposted"]
 
     for key in required_keys:
@@ -106,7 +115,8 @@ def search_posts_and_send(keyword):
         rows = []
         for _ in range(1):  # Repeat 5 times
             # Fetch posts containing the keyword using Bluesky's searchPosts method
-            response = client.app.bsky.feed.search_posts({'q': keyword, 'lang': 'en','limit': 100})
+            #response = client.app.bsky.feed.search_posts({'q': keyword, 'lang': 'en','limit': 100})
+            response = client.app.bsky.feed.search_posts({'q': keyword, 'lang': 'en','limit': 5}) #fixme, remove
             # If response is valid, process the posts
             if response and hasattr(response, 'posts'):  # Check if 'posts' attribute exists
                 for post in response.posts:
@@ -157,4 +167,7 @@ def search_posts_and_send(keyword):
 
 if __name__ == '__main__':
     asyncio.run(main())
+    print("SearchandSendPosts complete.")
+    sys.exit(0)
+
 
