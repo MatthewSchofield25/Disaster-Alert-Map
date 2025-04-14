@@ -19,7 +19,17 @@ username = os.getenv("DATABASE_USERNAME")
 password = os.getenv("DATABASE_PASSWORD")
 
 # Initialize the Dash app
-app = dash.Dash(__name__, external_stylesheets=[dash_bootstrap_components.themes.BOOTSTRAP])
+app = dash.Dash(__name__, 
+                external_stylesheets=[dash_bootstrap_components.themes.BOOTSTRAP],
+                meta_tags = [
+                    {"name": "viewport", "content": "width=device-width, initial-scale=1"},
+                    {"name": "description", "content": "Natural Disaster Sentiment Analysis"},
+                    {"name": "keywords", "content": "disaster, sentiment, analysis"},
+                    # Add this for smooth scrolling:
+                    {"name": "scroll-behavior", "content": "smooth"}
+                ]
+)
+
 valid_categories = {'Flood', 'Drought', 'Landslide', 'Volcano', 'Blizzard',
                         'Earthquake', 'Tsunami', 'Wildfire', 'Hurricane', 'Tornado', 'Other'}
 
@@ -170,9 +180,41 @@ def create_sentiment_graph(filtered_df, group_by='category'):
         plotly.graph_objects.Figure: The generated sentiment graph
     """
     fig = go.Figure()
+    if group_by == 'category':
+        loc_df = filtered_df.groupby(['timeposted', 'location'])['sentiment_score'].mean().reset_index()
+        for location in loc_df['location'].unique():
+            temp_df = loc_df[loc_df['location'] == location]
+            fig.add_trace(
+                go.Scatter(
+                    x=temp_df['timeposted'],
+                    y=temp_df['sentiment_score'],
+                    mode='lines',
+                    line=dict(width=1, color='rgba(150,150,150,0.2)'),  # Light gray, semi-transparent
+                    name=location,
+                    showlegend=False,
+                    hoverinfo='skip'  # Skip hover for individual locations
+                )
+            )
+        # Then add the category average line (bold and prominent)
+        avg_df = filtered_df.groupby('timeposted')['sentiment_score'].mean().reset_index()
+        fig.add_trace(
+            go.Scatter(
+                x=avg_df['timeposted'],
+                y=avg_df['sentiment_score'],
+                mode='lines+markers',
+                line=dict(width=3, color='#1f77b4'),
+                marker=dict(size=8),
+                name='Category Average',
+                hovertemplate=(
+                    '<b>Date</b>: %{x|%Y-%m-%d}<br>'
+                    '<b>Avg Sentiment</b>: %{y:.2f}<extra></extra>'
+                )
+            )
+        )
+        title = f"Sentiment Trend with {filtered_df['disaster_type'].iloc[0]} Average"
 
     # for the top 4 disaster part of
-    if group_by == 'location':
+    elif group_by == 'location':
         # Aggregate by location and date
         agg_df = filtered_df.groupby(['timeposted', 'location'])['sentiment_score'].mean().reset_index()
 
@@ -196,29 +238,6 @@ def create_sentiment_graph(filtered_df, group_by='category'):
 
         title = "Sentiment Trend by Location"
     # for sentiment over time by disaster
-    elif group_by == 'category':
-        # Aggregate by disaster type and date
-        agg_df = filtered_df.groupby(['timeposted', 'category'])['sentiment_score'].mean().reset_index()
-
-        # Add a trace for each disaster type
-        for disaster_type in agg_df['category'].unique():
-            type_df = agg_df[agg_df['category'] == disaster_type]
-            fig.add_trace(
-                go.Scatter(
-                    x=type_df['timeposted'],
-                    y=type_df['sentiment_score'],
-                    mode='lines+markers',
-                    line=dict(width=2),
-                    marker=dict(size=6),
-                    name=disaster_type,
-                    hovertemplate=(
-                        '<b>Date</b>: %{x|%Y-%m-%d}<br>'
-                        '<b>Sentiment</b>: %{y:.2f}<extra></extra>'
-                    )
-                )
-            )
-
-        title = "Sentiment Trend by Disaster Type"
     else:
         # Original behavior for specific location/disaster
         fig.add_trace(
@@ -289,6 +308,54 @@ def create_sentiment_graph(filtered_df, group_by='category'):
     print(agg_df)
     return fig
 
+#top 4 sidebar creation
+
+def create_top4_sidebar(top_disasters):
+    if not top_disasters:
+        return html.Div("No current disasters")
+
+    top_disasters = sorted(top_disasters, key=lambda x: x['rank'])
+
+    return html.Div(
+        style={"padding": "20px", "maxWidth": "350px", "margin": "right"},
+        children=[
+            dbc.Stack(
+                [
+                    html.H4("Current Disasters:"),
+                    *[
+                        dbc.Card(
+                            [
+                                dbc.CardHeader(
+                                    html.A(
+                                        f"{disaster['location']} {disaster['disaster']}",
+                                        href=f"#tab-{disaster['rank']}",
+                                        id=f"sidebar-link-{disaster['rank']}",
+                                        style={
+                                            "color": "inherit",
+                                            "text-decoration": "none",
+                                            "display": "block",
+                                            "width": "200px",
+                                            "height": "50px",
+                                            "text-align": "left",
+                                            "font-size": "clamp(12px,2vw,20px)",
+                                            "white-space": "nowrap",
+                                            "overflow": "hidden",
+                                            "text-overflow": "ellipsis",
+                                            "font-weight": "bold",
+                                            "padding": "0.5rem"
+                                        }
+                                    ),
+                                    style={"padding": 0}
+                                ),
+                            ],
+                            style={"margin-bottom": "1rem"},
+                        )
+                        for disaster in top_disasters
+                    ]
+                ]
+            )
+        ]
+    )
 
 def calculate_top_disasters(df):
     df['timeposted'] = pd.to_datetime(df['timeposted'], errors='coerce')
@@ -297,6 +364,8 @@ def calculate_top_disasters(df):
     if df.empty:
         print("No valid data after date cleaning")
         return []
+
+
 
     # Get most recent date in data
     most_recent_date = df['timeposted'].max()
@@ -367,6 +436,8 @@ def calculate_top_disasters(df):
         print(f"Error calculating top disasters: {str(e)}")
         return []
 
+sidebar = create_top4_sidebar(calculate_top_disasters(df))
+
 navbar = dbc.Navbar(
     dbc.Container(
         [
@@ -424,150 +495,7 @@ navbar = dbc.Navbar(
     dark=True,
 )
 
-sidebar = html.Div(
-    style={"padding": "20px", "maxWidth": "350px", "margin": "right"},
-    children=[
-        dbc.Stack(
-            [
-                dbc.InputGroup(
-                    [
-                        dbc.Input(type="search", placeholder="Search"),
-                        dbc.Button("Search", color="secondary", className="ms-2"),
-                    ],
-                    className="mb-3",
 
-                ),
-                dbc.Card(
-                    [
-                        dbc.CardHeader(
-                            html.A(
-                                "LA Wildfire",
-                                href = "#",
-                                style = {
-                                    "color": "inherit",
-                                    "text-decoration": "none",
-                                    "display": "block",
-                                    "width": "200px",
-                                    "height": "50px",
-                                    # font and text aligment
-                                    "text-align": "left",
-                                    "font-size": "clamp(12px,2vw,20px)",
-                                    "white-space": "nowrap",
-                                    "overflow": "hidden",
-                                    "text-overflow": "ellipsis",
-                                    "font-weight": "bold",
-                                    "padding": "0.5rem"
-
-                                }
-
-                            ),
-                            style = {"padding":0}
-                        ),
-                        #dbc.CardBody("Lorem ipsum"),
-
-                    ],
-                    style={"margin-bottom": "1rem"},
-                ),
-                dbc.Card(
-                    [
-                        dbc.CardHeader(
-                            html.A(
-                                "Florida Hurricane",
-                                href="#",
-                                style={
-                                    "color": "inherit",
-                                    "text-decoration": "none",
-                                    "display": "block",
-                                    "width": "200px",
-                                    "height": "50px",
-                                    # font and text aligment
-                                    "text-align": "left",
-                                    "font-size": "clamp(12px,2vw,20px)",
-                                    "white-space": "nowrap",
-                                    "overflow": "hidden",
-                                    "text-overflow": "ellipsis",
-                                    "font-weight": "bold",
-                                    "padding": "0.5rem"
-
-                                }
-
-                            ),
-                            style={"padding": 0}
-                        ),
-                        # dbc.CardBody("Lorem ipsum"),
-
-                    ],
-                    style={"margin-bottom": "1rem"},
-                ),
-                dbc.Card(
-                    [
-                        dbc.CardHeader(
-                            html.A(
-                                "North Texas Freeze",
-                                href="#",
-                                style={
-                                    "color": "inherit",
-                                    "text-decoration": "none",
-                                    "display": "block",
-                                    "width": "200px",
-                                    "height": "50px",
-                                    # font and text aligment
-                                    "text-align": "left",
-                                    "font-size": "clamp(12px,2vw,20px)",
-                                    "white-space": "nowrap",
-                                    "overflow": "hidden",
-                                    "text-overflow": "ellipsis",
-                                    "font-weight": "bold",
-                                    "padding": "0.5rem"
-
-                                }
-
-                            ),
-                            style={"padding": 0}
-                        ),
-                        # dbc.CardBody("Lorem ipsum"),
-
-                    ],
-                    style={"margin-bottom": "1rem"},
-                ),
-                dbc.Card(
-                    [
-                        dbc.CardHeader(
-                            html.A(
-                                "South Carolina Flood",
-                                href="#",
-                                style={
-                                    "color": "inherit",
-                                    "text-decoration": "none",
-                                    "display": "block",
-                                    "width": "200px",
-                                    "height": "50px",
-                                    # font and text aligment
-                                    "text-align": "left",
-                                    "font-size": "clamp(12px,2vw,20px)",
-                                    "white-space": "nowrap",
-                                    "overflow": "hidden",
-                                    "text-overflow": "ellipsis",
-                                    "font-weight": "bold",
-                                    "padding": "0.5rem"
-
-                                }
-
-                            ),
-                            style={"padding": 0}
-                        ),
-                        # dbc.CardBody("Lorem ipsum"),
-
-                    ],
-                    style={"margin-bottom": "1rem"},
-                ),
-            ]
-        )
-    ]
-)
-
-
-    # Define the layout
 app.layout = html.Div(
     style={'backgroundColor': '#f8f9fa'},  # Light background for the page
     children=[
@@ -619,9 +547,8 @@ app.layout = html.Div(
                                 'borderRadius': '10px',
                                 'boxShadow': '0 4px 8px rgba(0,0,0,0.1)',
                             },
-                            children=sidebar,  # Replace with your sidebar content
+                            children=create_top4_sidebar(calculate_top_disasters(df)),  # Replace with your sidebar content
                         ),
-                        # Graph on the right
 
                     ]
                 ),
@@ -635,7 +562,9 @@ app.layout = html.Div(
                 dbc.Tabs(
                     [
                         dbc.Tab(
+                            id= f"tab-{disaster['rank']}", # individual tab id
                             label=f"#{disaster['rank']} {disaster['location']} {disaster['disaster']} {disaster['trend']}",
+                            tab_id = f"tab-{disaster['rank']}" ,
                             tab_style={"margin": "5px", "padding": "10px"},
                             active_label_style={
                                 "color": "white",
@@ -710,6 +639,24 @@ app.layout = html.Div(
     dash.dependencies.Input("navbar-toggler", "n_clicks"),
     dash.dependencies.State("navbar-collapse", "is_open"),
 )
+
+@app.callback(
+    dash.dependencies.Output("disaster-tabs", "active_tab"),
+    [dash.dependencies.Input(f"sidebar-link-{i}", "n_clicks") for i in range(1, 5)],
+    prevent_initial_call=True
+)
+def switch_tab(*args):
+    ctx = dash.callback_context
+    if not ctx.triggered:
+        return dash.no_update
+
+    # Extract the rank from the clicked link
+    clicked_id = ctx.triggered[0]['prop_id'].split('.')[0]
+    rank = int(clicked_id.split('-')[-1])
+
+    # Return the corresponding tab_id
+    return f"tab-{rank}"
+
 
 def toggle_navbar_collapse(n_clicks, is_open):
     if n_clicks:
