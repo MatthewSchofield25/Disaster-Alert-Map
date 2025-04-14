@@ -24,7 +24,6 @@ def flatten(l):
 
 df = pd.read_csv('test.csv', usecols=['text'])
 text_list = df.values.tolist()
-print(text_list[:5])
 
 # Read the whole text.
 #text = open(path.join(d, 'constitution.txt')).read()
