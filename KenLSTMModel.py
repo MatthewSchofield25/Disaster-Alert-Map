@@ -1,3 +1,6 @@
+!pip install -q transformers datasets spacy
+!python -m spacy download en_core_web_sm
+
 import asyncio
 import pandas as pd
 import numpy as np
@@ -18,7 +21,6 @@ from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Embedding, LSTM, Dense, SpatialDropout1D
 from tensorflow.keras.utils import to_categorical
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import accuracy_score, f1_score, classification_report
 import spacy
 import pyodbc
 from dotenv import load_dotenv
@@ -37,8 +39,31 @@ from keras.optimizers import Adam,SGD
 from tensorflow.keras import regularizers
 from tensorflow.keras.callbacks import *
 import datetime
-n_epoch = 30
 
+# new Kenny requitements
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from torch.utils.data import Dataset, DataLoader
+from transformers import AutoTokenizer, AutoModel
+from torch.optim import AdamW
+from sklearn.metrics import accuracy_score, classification_report, precision_score, recall_score, f1_score, precision_recall_curve, auc
+from torch.cuda.amp import autocast, GradScaler
+import matplotlib.pyplot as plt
+from sklearn.utils import resample
+from collections import Counter
+
+nlp = spacy.load("en_core_web_sm")
+nltk.download('stopwords')
+nltk.download('vader_lexicon')
+nltk.download('wordnet')
+
+# device
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print("Using device:", device)
+
+
+n_epoch = 30
 load_dotenv() #load the .env file
 driver = '{ODBC Driver 18 for SQL Server}'
 server = os.getenv("DATABASE_SERVER")
@@ -53,12 +78,6 @@ print(f"DATABASE_NAME: {database}")
 print(f"DATABASE_USERNAME: {username}")
 print(f"DATABASE_PASSWORD: {password}")
 '''
-
-nlp = spacy.load("en_core_web_sm")
-
-nltk.download('stopwords')
-nltk.download('vader_lexicon')
-nltk.download('wordnet')
 
 #preprocessing
 lemmatizer = WordNetLemmatizer()
@@ -181,87 +200,326 @@ def send_LSTM_data(relevant_posts):
 
 # first model, Kenny's model
 def run_model1(train, test):
-    train["cleaned_text"] = train["text"].apply(preprocess_data)
-    test["cleaned_text"] = test["text"].apply(preprocess_data)
+    # load and merge training datasets
+    train_df1 = pd.read_csv("train.csv").rename(columns={"Text": "text", "Label": "target"})
+    train_df2 = pd.read_csv("Bluesky_Training_Labeled_1000.csv", encoding='latin1')\
+              .rename(columns={"post_text": "text", "Label": "target"})
+    train_df = pd.concat([train_df1, train_df2], ignore_index=True)
 
-    #sentiment analysis
-    sia = SentimentIntensityAnalyzer()
-    train["sentiment_score"] = train["text"].apply(lambda x: sia.polarity_scores(x)["compound"])
-    test["sentiment_score"] = test["text"].apply(lambda x: sia.polarity_scores(x)["compound"])
+# model
+class MultiTaskDisasterModel(nn.Module):
+    def __init__(self, base_model="vinai/bertweet-base", num_disaster_classes=12):
+        super().__init__()
+        self.encoder = AutoModel.from_pretrained(base_model)
+        hidden = self.encoder.config.hidden_size
+        self.relevance_head = nn.Linear(hidden, 1)
+        self.disaster_head = nn.Linear(hidden, num_disaster_classes)
+        self.sentiment_head = nn.Linear(hidden, 3)
 
-    #detecting relevance
-    vectorizer = TfidfVectorizer(max_features=10000, ngram_range=(1, 2))
-    X_tfidf = vectorizer.fit_transform(train["cleaned_text"])
-    y_tfidf = train["target"]
+    def forward(self, input_ids, attention_mask):
+        x = self.encoder(input_ids=input_ids, attention_mask=attention_mask).last_hidden_state[:, 0]
+        return {
+            "relevance": self.relevance_head(x),  # raw logits
+            "disaster_type": self.disaster_head(x),
+            "sentiment": self.sentiment_head(x)
+        }
 
-    X_train_tfidf, X_val_tfidf, y_train_tfidf, y_val_tfidf = train_test_split(X_tfidf, y_tfidf, test_size=0.2, random_state=42)
-    relevance_model = LogisticRegression()
-    relevance_model.fit(X_train_tfidf, y_train_tfidf)
+# sentiment score
+sid = SentimentIntensityAnalyzer()
+train_df["Sentiment"] = train_df["text"].apply(lambda t: sid.polarity_scores(t)["compound"])
 
-    #evaluating
-    y_val_pred = relevance_model.predict(X_val_tfidf)
-    val_accuracy = accuracy_score(y_val_tfidf, y_val_pred)
-    val_f1 = f1_score(y_val_tfidf, y_val_pred)
+# disaster keywords
+disaster_keywords = {
+    "Earthquake": ["earthquake", "quake", "seismic", "richter", "aftershock", "tremor"],
+    "Wildfire": ["wildfire", "bushfire", "forest fire", "firestorm", "blaze"],
+    "Hurricane": ["hurricane", "cyclone", "typhoon", "storm surge", "tropical storm"],
+    "Flood": ["flood", "flash flood", "heavy rain", "overflow", "dam failure"],
+    "Tornado": ["tornado", "twister", "funnel cloud", "storm"],
+    "Tsunami": ["tsunami", "seismic wave", "ocean surge"],
+    "Volcano": ["volcano", "eruption", "lava", "ash cloud", "magma"],
+    "Landslide": ["landslide", "mudslide", "rockfall", "avalanche"],
+    "Drought": ["drought", "water shortage", "dry spell", "desertification"],
+    "Blizzard": ["blizzard", "snowstorm", "ice storm", "whiteout"],
+    "Storm": ["storm", "windstorm", "hailstorm", "gale", "gust", "storm damage"]
+}
 
-    print(f"Relevance Classifier Accuracy: {val_accuracy:.4f}")
-    print(f"Relevance Classifier F1 Score: {val_f1:.4f}")
-    print("\nClassification Report:")
-    print(classification_report(y_val_tfidf, y_val_pred))
+def categorize_disaster(text):
+    text = text.lower()
+    for disaster, keywords in disaster_keywords.items():
+        if any(word in text for word in keywords):
+            return disaster
+    return "Other"
 
-    X_test_tfidf = vectorizer.transform(test["cleaned_text"])
-    test_probs = relevance_model.predict_proba(X_test_tfidf)[:, 1]
-    test["Relevant"] = (test_probs > 0.7).astype(int)
+# apply disaster category
+category_map = list(disaster_keywords.keys()) + ["Other"]
+cat_to_idx = {c: i for i, c in enumerate(category_map)}
 
-    #filter the relevant post
-    relevant_posts = test[test["Relevant"] == 1].copy()
+train_df["category"] = train_df["text"].apply(categorize_disaster)
+train_df["category_label"] = train_df["category"].map(cat_to_idx)
+train_df["sentiment_label"] = pd.cut(train_df["Sentiment"], [-1.1, -0.05, 0.05, 1.1], labels=[0, 1, 2]).astype(int)
 
-    #disaster categorization
-    disaster_categories = {k: i for i, k in enumerate(list(disaster_keywords.keys()) + ["Other"])}
-    train["category"] = train["cleaned_text"].apply(categorize_disaster)
-    train["category_label"] = train["category"].map(disaster_categories)
+#print("Class distribution before balancing:")
+#print(train_df["category"].value_counts())
 
-    #LSTM prep
-    MAX_NB_WORDS = 5000
-    MAX_SEQUENCE_LENGTH = 100
-    EMBEDDING_DIM = 100
+############################### Balance dataset: drop rare classes and downsample 'Other'
 
-    keras_tokenizer = Tokenizer(num_words=MAX_NB_WORDS, lower=True)
-    keras_tokenizer.fit_on_texts(train["cleaned_text"])
+# remove extremely rare classes (<10 samples)
+rare_classes = train_df["category"].value_counts()[train_df["category"].value_counts() < 10].index
+train_df = train_df[~train_df["category"].isin(rare_classes)]
 
-    X_train_seq = keras_tokenizer.texts_to_sequences(train["cleaned_text"])
-    X_test_seq = keras_tokenizer.texts_to_sequences(relevant_posts["cleaned_text"])
+# downsample 'Other'
+df_majority = train_df[train_df["category"] == "Other"]
+df_minority = train_df[train_df["category"] != "Other"]
 
-    X_train_seq = pad_sequences(X_train_seq, maxlen=MAX_SEQUENCE_LENGTH)
-    X_test_seq = pad_sequences(X_test_seq, maxlen=MAX_SEQUENCE_LENGTH)
+# downsample 'Other' to the size of the largest minority class
+target_size = df_minority["category"].value_counts().max()
 
-    y_train_cat = to_categorical(train["category_label"], num_classes=len(disaster_categories))
+df_other_down = resample(
+    df_majority,
+    replace=False,
+    n_samples=target_size,
+    random_state=42
+)
 
-    #LSTM model
-    model = Sequential([
-        Embedding(input_dim=MAX_NB_WORDS, output_dim=EMBEDDING_DIM, input_length=MAX_SEQUENCE_LENGTH),
-        SpatialDropout1D(0.2),
-        LSTM(64, return_sequences=True),
-        LSTM(32),
-        Dense(len(disaster_categories), activation='softmax')
-    ])
+# upsample small classes
+upsampled_minority = []
+for name, group in df_minority.groupby("category"):
+    if len(group) < target_size:
+        group_up = resample(group, replace=True, n_samples=target_size, random_state=42)
+        upsampled_minority.append(group_up)
+    else:
+        upsampled_minority.append(group)
 
-    model.compile(loss='categorical_crossentropy', optimizer='adam', metrics=['accuracy'])
-    X_lstm_train, X_lstm_val, y_lstm_train, y_lstm_val = train_test_split(
-        X_train_seq, y_train_cat, test_size=0.2, random_state=42
+df_minority_balanced = pd.concat(upsampled_minority)
+train_df = pd.concat([df_other_down, df_minority_balanced])
+train_df = train_df.sample(frac=1, random_state=42).reset_index(drop=True)
+
+# re-map labels after balancing
+train_df["category_label"] = train_df["category"].map(cat_to_idx)
+
+#########################
+
+#print("\nClass distribution after balancing:")
+#print(train_df["category"].value_counts())
+
+# View disaster type distribution
+#print("Disaster type counts:")
+#print(train_df["category"].value_counts())
+
+# tokenizer
+tokenizer = AutoTokenizer.from_pretrained("vinai/bertweet-base")
+
+def tokenize_batch(texts):
+    return tokenizer(texts, truncation=True, padding="max_length", max_length=128, return_tensors="pt")
+
+train_texts, val_texts, train_rel, val_rel, train_cat, val_cat, train_sent, val_sent = train_test_split(
+    train_df["text"].tolist(),
+    train_df["target"].tolist(),
+    train_df["category_label"].tolist(),
+    train_df["sentiment_label"].tolist(),
+    test_size=0.2,
+    stratify=train_df["category_label"]
+)
+
+print("Train set class distribution:", Counter(train_cat))
+print("Val set class distribution:", Counter(val_cat))
+
+train_encodings = tokenize_batch(train_texts)
+val_encodings = tokenize_batch(val_texts)
+
+
+class DisasterDataset(Dataset):
+    def __init__(self, encodings, relevance, disaster, sentiment):
+        self.encodings = encodings
+        self.relevance = relevance
+        self.disaster = disaster
+        self.sentiment = sentiment
+
+    def __len__(self):
+        return len(self.relevance)
+
+    def __getitem__(self, idx):
+        return {
+            "input_ids": self.encodings["input_ids"][idx],
+            "attention_mask": self.encodings["attention_mask"][idx],
+            "relevance": torch.tensor(self.relevance[idx], dtype=torch.float),
+            "disaster": torch.tensor(self.disaster[idx], dtype=torch.long),
+            "sentiment": torch.tensor(self.sentiment[idx], dtype=torch.long)
+        }
+
+    train_ds = DisasterDataset(train_encodings, train_rel, train_cat, train_sent)
+    val_ds = DisasterDataset(val_encodings, val_rel, val_cat, val_sent)
+    train_loader = DataLoader(train_ds, batch_size=16, shuffle=True)
+    val_loader = DataLoader(val_ds, batch_size=64)
+
+    # train model
+    model = MultiTaskDisasterModel().to(device)
+    optimizer = AdamW(model.parameters(), lr=2e-5)
+    scaler = GradScaler()
+
+    for epoch in range(3):
+        model.train()
+        total_loss = 0
+        for batch in train_loader:
+            input_ids = batch["input_ids"].to(device)
+            mask = batch["attention_mask"].to(device)
+            rel = batch["relevance"].unsqueeze(1).to(device)
+            cat = batch["disaster"].to(device)
+            sent = batch["sentiment"].to(device)
+
+            optimizer.zero_grad()
+            with autocast():
+                out = model(input_ids=input_ids, attention_mask=mask)
+                loss = (
+                    F.binary_cross_entropy_with_logits(out["relevance"], rel) +
+                    F.cross_entropy(out["disaster_type"], cat) +
+                    F.cross_entropy(out["sentiment"], sent)
+                )
+
+            scaler.scale(loss).backward()
+            scaler.step(optimizer)
+            scaler.update()
+            total_loss += loss.item()
+
+        print(f"Epoch {epoch+1} Loss: {total_loss:.4f}")
+
+    # evaluation with precision-based metrics
+    model.eval()
+    val_loss = 0
+    pred_rel, pred_cat, pred_sent = [], [], []
+    true_rel, true_cat, true_sent = [], [], []
+    raw_rel_logits = []
+
+    with torch.inference_mode():
+        for batch in val_loader:
+            input_ids = batch["input_ids"].to(device)
+            mask = batch["attention_mask"].to(device)
+            rel = batch["relevance"].unsqueeze(1).to(device)
+            cat = batch["disaster"].to(device)
+            sent = batch["sentiment"].to(device)
+
+            out = model(input_ids=input_ids, attention_mask=mask)
+            loss = (
+                F.binary_cross_entropy_with_logits(out["relevance"], rel) +
+                F.cross_entropy(out["disaster_type"], cat) +
+                F.cross_entropy(out["sentiment"], sent)
+            )
+            val_loss += loss.item()
+
+            logits = out["relevance"].squeeze()
+            raw_rel_logits.extend(logits.cpu().tolist())
+            pred_rel.extend((logits > 0.5).int().cpu().tolist())
+
+            pred_cat.extend(torch.argmax(out["disaster_type"], dim=1).cpu().tolist())
+            pred_sent.extend(torch.argmax(out["sentiment"], dim=1).cpu().tolist())
+            true_rel.extend(rel.cpu().int().tolist())
+            true_cat.extend(cat.cpu().tolist())
+            true_sent.extend(sent.cpu().tolist())
+
+    print(f"Validation Loss: {val_loss:.4f}")
+
+    # relevance metrics
+    print("\n[Relevance Metrics]")
+    print("Accuracy:", accuracy_score(true_rel, pred_rel))
+    print("Precision:", precision_score(true_rel, pred_rel))
+    print("Recall:", recall_score(true_rel, pred_rel))
+    print("F1 Score:", f1_score(true_rel, pred_rel))
+
+    # disaster type metrics (only for relevant posts)
+    print("\n[Disaster Type Metrics — Relevant Posts Only]")
+    relevant_mask = [bool(x) for x in true_rel]
+    filtered_true_cat = [c for c, r in zip(true_cat, relevant_mask) if r == 1]
+    filtered_pred_cat = [p for p, r in zip(pred_cat, relevant_mask) if r == 1]
+
+    print("Accuracy:", accuracy_score(filtered_true_cat, filtered_pred_cat))
+    print("Precision:", precision_score(filtered_true_cat, filtered_pred_cat, average='weighted'))
+    print("Recall:", recall_score(filtered_true_cat, filtered_pred_cat, average='weighted'))
+    print("F1 Score:", f1_score(filtered_true_cat, filtered_pred_cat, average='weighted'))
+    print("\nDetailed Classification Report:")
+    print(classification_report(filtered_true_cat, filtered_pred_cat, target_names=category_map))
+
+
+    # load test data and tokenize
+    bluesky_df = pd.read_csv("TestDataBluesky_No_Overlap_With_Training.csv")
+
+    def clean_text(text):
+        return text.lower().strip()
+
+    bluesky_df["text"] = bluesky_df["post_text"].astype(str)
+    bluesky_df["cleaned_text"] = bluesky_df["text"].apply(clean_text)
+
+
+    test_enc = tokenizer(bluesky_df["text"].tolist(), truncation=True, padding=True, max_length=128, return_tensors="pt")
+
+    class BlueskyDataset(Dataset):
+        def __init__(self, enc):
+            self.enc = enc
+        def __len__(self):
+            return len(self.enc["input_ids"])
+        def __getitem__(self, idx):
+            return {
+                "input_ids": self.enc["input_ids"][idx],
+                "attention_mask": self.enc["attention_mask"][idx]
+            }
+
+    # run inference
+    bluesky_loader = DataLoader(BlueskyDataset(test_enc), batch_size=64)
+    model.eval()
+    all_rel, all_cat, all_sent = [], [], []
+
+    with torch.inference_mode():
+        for batch in bluesky_loader:
+            input_ids = batch["input_ids"].to(device)
+            attention_mask = batch["attention_mask"].to(device)
+            out = model(input_ids=input_ids, attention_mask=attention_mask)
+
+            all_rel.extend((out["relevance"].squeeze() > 0.5).int().cpu().tolist())
+            all_cat.extend(torch.argmax(out["disaster_type"], dim=1).cpu().tolist())
+            all_sent.extend(torch.argmax(out["sentiment"], dim=1).cpu().tolist())
+
+    # map predictions to labels
+    bluesky_df["Relevancy"] = all_rel
+    bluesky_df["category"] = [category_map[i] for i in all_cat]
+    bluesky_df["Predicted_Sentiment"] = [ ["Negative", "Neutral", "Positive"][i] for i in all_sent ]
+
+    # NER location extraction
+    def extract_locations(text):
+        doc = nlp(text)
+        return [ent.text for ent in doc.ents if ent.label_ == "GPE"]
+
+    bluesky_df["Locations"] = bluesky_df.apply(
+        lambda row: extract_locations(row["post_text"]) if row["Relevancy"] == 1 else [], axis=1
     )
 
-    model.fit(X_lstm_train, y_lstm_train, epochs=5, batch_size=32, validation_data=(X_lstm_val, y_lstm_val))
+    # display and save
+    display(bluesky_df[bluesky_df["Relevancy"] == 1][
+        ["post_text", "category", "Predicted_Sentiment", "Locations"]
+    ].head(30))
 
-    #predicting
-    predictions = model.predict(X_test_seq)
-    predicted_categories = predictions.argmax(axis=1)
-    reverse_category_map = {v: k for k, v in disaster_categories.items()}
-    relevant_posts["category"] = [reverse_category_map[i] for i in predicted_categories]
-    relevant_posts["location"] = relevant_posts["text"].apply(extract_location)
+    # Save final formatted file
+    bluesky_df[[
+        "post_uri", "post_author", "post_author_display", "text", "timeposted",
+        "sentiment_score", "keyword", "location", "cleaned_text", "category", "Relevancy"
+    ]].to_csv("Final_Predicted_Bluesky.csv", index=False)
 
-    #final output
-    relevant_posts.to_csv("Bluesky_Disaster_Predictions_With_Relevance.csv", index=False)
 
+    # === RELEVANCE STATS ===
+    print("Relevance Counts (Predicted):")
+    print(bluesky_df["Relevancy"].value_counts().rename(index={0: "Not Relevant", 1: "Relevant"}))
+    print()
+
+    # === DISASTER TYPE STATS (ALL) ===
+    print("Disaster Type Counts (All Posts):")
+    print(bluesky_df["category"].value_counts())
+    print()
+
+    # === DISASTER TYPE STATS (RELEVANT ONLY) ===
+    print("Disaster Type Counts (Relevant Posts Only):")
+    print(bluesky_df[bluesky_df["Relevancy"] == 1]["category"].value_counts())
+    print()
+
+    relevant_posts = bluesky_df[bluesky_df["Relevant"] == 1].copy()
+    
     return relevant_posts
 
 # second model, Vanessa's model
