@@ -9,7 +9,9 @@ import pyodbc
 import os
 from sklearn.neighbors import NearestNeighbors
 import numpy as np
+import pyodbc
 from dotenv import load_dotenv
+import sys
 
 #Initialize Database Connection
 driver = '{ODBC Driver 18 for SQL Server}'
@@ -32,6 +34,18 @@ app = dash.Dash(__name__,
 
 valid_categories = {'Flood', 'Drought', 'Landslide', 'Volcano', 'Blizzard',
                         'Earthquake', 'Tsunami', 'Wildfire', 'Hurricane', 'Tornado', 'Other'}
+container_data = [
+    {"label" : "Flood", "text" : "Preparation Checklist", "url" : "https://www.redcross.org/content/dam/redcross/atg/PDF_s/Preparedness___Disaster_Recovery/Disaster_Preparedness/Flood/Flood.pdf?srsltid=AfmBOooYb5XqIU4q2rpe4A2Hp28Bzj9dahoGHyrIcco_GJSxpU-J7rCo"},
+    {"label" : "Drought", "text" : "Preparation", "url" : "https://www.redcross.org/get-help/how-to-prepare-for-emergencies/types-of-emergencies/drought.html#:~:text=Take%20shorter%20showers.,excess%20water%20for%20watering%20plants."},
+    {"label" : "Landslide", "text" : "Preparation Checklist", "url" : "https://www.redcross.org/content/dam/redcross/atg/PDF_s/Preparedness___Disaster_Recovery/Disaster_Preparedness/Landslide/Landslide.pdf?srsltid=AfmBOop3gTFdYz2qGqZs2h9R_kA05dedcyzQv45cRGthIBBQUNvBCqUQ"},
+    {"label" : "Volcano", "text" : "Preparation Checklist", "url" : "https://www.redcross.org/content/dam/redcross/get-help/pdfs/volcano/EN-Volcano-Preparedness-Checklist.pdf?srsltid=AfmBOopXz8YX7B7U2B--Kz-4sWxsCVmX7WMja4Uty4HRAmuuHoW4huRs"},
+    {"label" : "Blizzard", "text" : "Preparation Checklist", "url" : "https://www.redcross.org/content/dam/redcross/get-help/pdfs/winter-storm/EN_Winter-Storm-Preparedness-Checklist.pdf?srsltid=AfmBOor7GyFezrLptgyv0dhYblX37Q4gFgAgAEocwDTFnIv-qlNtm8OV"},
+    {"label" : "Earthquake", "text" : "Preparation Checklist", "url" : "https://www.redcross.org/content/dam/redcross/atg/PDF_s/Preparedness___Disaster_Recovery/Disaster_Preparedness/Earthquake/Earthquake.pdf?srsltid=AfmBOorWLUzIWi0f9PTdupBli10qhxqndYXV8ja3pjrktRW9LT36SP2Q"},
+    {"label" : "Tsunami", "text" : "Preparation Checklist", "url" : "https://www.redcross.org/content/dam/redcross/atg/PDF_s/Preparedness___Disaster_Recovery/Disaster_Preparedness/Tsunami/Tsunami.pdf?srsltid=AfmBOooKXPhZz3pWkWDFr-fd0Yh09y8_NSx7Jlk57pfGAIEc-1c5_gNG"},
+    {"label" : "Wildfire", "text" : "Preparation Checklist", "url" : "https://www.redcross.org/content/dam/redcross/get-help/pdfs/wildfire/EN_Wildfire-Safety-Checklist.pdf?srsltid=AfmBOooxaNVvAw1i67Te2XtaaFySkWh_zG5Jymc0-6TSk98HCWSVUJSS"},
+    {"label" : "Hurricane", "text" : "Preparation Checklist", "url" : "https://www.redcross.org/content/dam/redcross/get-help/pdfs/hurricane/EN_Hurricane-Safety-Checklist.pdf?srsltid=AfmBOooxmu63WM4R56wSqLWsMhAy_R1khKx99umgvAz3u1aWiTwMytK9"},
+    {"label" : "Tornado", "text" : "Preparation Checklist", "url" : "https://www.redcross.org/content/dam/redcross/get-help/pdfs/tornado/EN_Tornado-Safety-Checklist.pdf?srsltid=AfmBOorBQ3VJoHMyjfyCXQgXFAxITmey36YT6TFW0r4w6POiBPjM8tX7"}
+]
 
 
 # # CODE TO USE FOR LATER ONCE DATABASE IS SET UP
@@ -39,6 +53,7 @@ try:
     db = pyodbc.connect(f'DRIVER={driver};SERVER={server};DATABASE={database};UID={username};PWD={password}')
 except Exception as e:
     print(f"Error connecting to SQL Server: {e}")
+    sys.quit()
 print("SQL Server Connection Successful")
 
 
@@ -88,7 +103,6 @@ def applyMostFrequentLocationCoords(df): # Accept the DataFrame and the frequent
 grouped_before_fillna = df.groupby('category')
 
 most_frequent_locations = grouped_before_fillna.apply(get_most_frequent_location, include_groups=False).reset_index()
-print(most_frequent_locations)
 
 posts_generalized = applyMostFrequentLocationCoords(most_frequent_locations.copy()) # Pass copies
 
@@ -102,12 +116,12 @@ category_location_map = posts_generalized_cleaned.set_index('category')['locatio
 df['location'] = df['category'].map(category_location_map)
 df.dropna()
 
-
-print(df['location'])
-
 # Mapbox token
 mapbox_access_token = os.getenv("MAP_ACCESSKEY")
 
+def generate_geo_map(geo_data):
+    if geo_data.empty:
+        return {"data": [], "layout": {}}
 
 # Modified generate_geo_map function
 def generate_geo_map(geo_data):
@@ -167,7 +181,6 @@ def generate_geo_map(geo_data):
         ),
     )
     return {"data": disasters, "layout": layout}
-
 def create_sentiment_graph(filtered_df, group_by='category'):
     """
     Creates a sentiment trend graph for a specific location and disaster type
@@ -196,7 +209,7 @@ def create_sentiment_graph(filtered_df, group_by='category'):
                 )
             )
         # Then add the category average line (bold and prominent)
-        avg_df = filtered_df.groupby('timeposted')['sentiment_score'].mean().reset_index()
+        avg_df = filtered_df.groupby(['timeposted', 'category'])['sentiment_score'].mean().reset_index()
         fig.add_trace(
             go.Scatter(
                 x=avg_df['timeposted'],
@@ -211,7 +224,8 @@ def create_sentiment_graph(filtered_df, group_by='category'):
                 )
             )
         )
-        title = f"Sentiment Trend with {filtered_df['disaster_type'].iloc[0]} Average"
+
+        title = f"Sentiment Trend with '{avg_df['category']}' Average"
 
     # for the top 4 disaster part of
     elif group_by == 'location':
@@ -305,7 +319,6 @@ def create_sentiment_graph(filtered_df, group_by='category'):
             type="date"
         )
     )
-    print(agg_df)
     return fig
 
 #top 4 sidebar creation
@@ -364,8 +377,6 @@ def calculate_top_disasters(df):
     if df.empty:
         print("No valid data after date cleaning")
         return []
-
-
 
     # Get most recent date in data
     most_recent_date = df['timeposted'].max()
@@ -441,7 +452,7 @@ sidebar = create_top4_sidebar(calculate_top_disasters(df))
 navbar = dbc.Navbar(
     dbc.Container(
         [
-            dbc.NavbarBrand("CS Project", href="#"),  # Navbar brand
+            dbc.NavbarBrand("Natural Disaster Alert", href="#"),  # Navbar brand
             dbc.NavbarToggler(id="navbar-toggler"),  # Navbar toggler button
 
             dbc.Collapse(
@@ -451,35 +462,13 @@ navbar = dbc.Navbar(
                         dbc.Col(
                             dbc.Nav(
                                 [
-                                    dbc.NavItem(dbc.NavLink("Home", href="#", active=True)),
-                                    dbc.NavItem(dbc.NavLink("About", href="#")),
-                                    #dbc.DropdownMenu(
-                                   #     [
-                                   #         dbc.DropdownMenuItem("Action", href="#"),
-                                   #         dbc.DropdownMenuItem("Another action", href="#"),
-                                   #         dbc.DropdownMenuItem("Something else here", href="#"),
-                                    #        dbc.DropdownMenuItem(divider=True),
-                                    #        dbc.DropdownMenuItem("Separated link", href="#"),
-                                    #    ],
-                                  #      label="Dropdown",
-                                   #     nav=True,
-                                   # ),
+                                    dbc.NavItem(dbc.NavLink("Home", href="home", active=True)),
+                                    dbc.NavItem(dbc.NavLink("About", href="about", active=True)),
                                 ],
                                 className="me-auto",  # Align links to the left
                             ),
                             width="auto",
                         ),
-
-                        # Right-aligned search bar
-                        #dbc.Col(
-                        #    dbc.InputGroup(
-                         #       [
-                        #            dbc.Input(type="search", placeholder="Search"),
-                        #            dbc.Button("Search", color="secondary", className="ms-2"),
-                         #       ],
-                         #   ),
-                        #    width="auto",
-                       # ),
                     ],
                     justify="between",  # Distribute space between links and search
                     className="g-0 w-100",  # Remove gutters and take full width
@@ -495,6 +484,19 @@ navbar = dbc.Navbar(
     dark=True,
 )
 
+info_blurb = dbc.Container(
+     dbc.Row([
+         dbc.Col([
+             html.H2("About Us", className="text-center mb-4"),
+             html.P(
+                 "The Team : Matthew Schofield, Liz Cadungog, Kenny Rodriguez, Vanessa Alvarez, Adam Mondragon, Gail Hernandez"
+             ),
+             html.P(
+                 "We are a group of students at the University of Texas at Dallas (there's gonna be more later)"
+             )
+         ])
+     ])
+ )
 
 app.layout = html.Div(
     style={'backgroundColor': '#f8f9fa'},  # Light background for the page
@@ -630,9 +632,51 @@ app.layout = html.Div(
                     ])
                 ),
             ]
-        )
+        ),
+        info_blurb,
+        dbc.Container([
+                # Heading paragraph
+                dbc.Row([
+                    dbc.Col([
+                        html.H2("External Resources", className="text-center mb-4"),
+                        html.P(
+                            "The American Red Cross provides many resources for information"
+                            "about natural disasters and the steps you can take to prepare for them."
+                            "Please see the links below to inform yourself and your loved ones in the"
+                            "case that you need to prepare for any of these disasters.",
+                            className="lead text-center mb-5"
+                        )
+                    ], width=12)
+                ]),
+                dbc.Row([
+                    dbc.Col([
+                        # Generate the 10 containers dynamically
+                        *[
+                            dbc.Card(
+                                dbc.CardBody([
+                                    html.H4(data["label"], className="card-title"),
+                                    html.P(
+                                        html.A(
+                                            data["text"],
+                                            href=data["url"],
+                                            target="_blank",
+                                            className="card-link"
+                                        ),
+                                        className="card-text"
+                                    )
+                                ]),
+                                className="mb-4 shadow-sm"
+                            )
+                            for data in container_data
+                        ]
+                    ], width=12)
+                ])
+            ], fluid=True)
+
+        
     ]
 )
+
 
 @app.callback(
     dash.dependencies.Output("navbar-collapse", "is_open"),
@@ -669,4 +713,4 @@ disaster_map_figure = generate_geo_map(posts_generalized_cleaned)
 app.layout['disaster-map'].figure = disaster_map_figure
 # Run the app
 if __name__ == '__main__':
-    app.run(debug=True, host='127.0.0.1', port = 8050)
+    app.run(debug=False, host='127.0.0.1', port = 8050)

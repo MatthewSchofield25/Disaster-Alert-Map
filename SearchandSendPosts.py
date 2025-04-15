@@ -31,6 +31,7 @@ async def main() -> None:
 
     for keyword in ["Hurricane"]: #fixme, remove. used for testing
     #for keyword in ["Tornado", "Hurricane", "Wildfire", "Tsunami", "Earthquake", "Flood", "Blizzard", "Other", "Weather", "Disaster","Emergency","Alert","Warning","Watch","Tracker","Report","Update","News","Info","Help","Support","Assistance","Rescue","Relief","Aid","Donation","Volunteer","Shelter","Evacuation","Preparedness","Safety","Security","Protection","Survival","Recovery","Response","Mitigation","Advisory","Guidance","Recommendation", "blast","blaze","blazing","blizzard","blood","bloodshed","blown","blown-over","blown-up","blownout","blownover","blownup","bluster","blustery","bomb","blaze","cyclone","damage","danger","dangerous","dead","death","debris","destruction","devastate","devastated","devastating","devastation","disaster","displaced","drought","drown","drowned","drowning","dust","duststorm","earthquake","emergency","evacuate","evacuated","evacuating","evacuation","explode","exploded","explosion","explosive","famine","fatal","fatalities","fatality","fear","fire","flood","flooding","floods","forestfire","gas","gasleak","gust","gusty","hail","hailstorm","hazard","hazardous","hazards","heat","heatwave","helicopter","help","hurricane","injured","injuries","injury","landslide","lava","lightning","mud","mudslide","naturaldisaster","nuclear","nuclearfallout","nuclearmeltdown","nuclearwaste","nuclearwinter","outbreak","overcast","overheat","overheated","overheating","overpower","overpowered","overpowering","overwhelm","overwhelmed","overwhelming","panic","panicked","panicking","paralyze","paralyzed","paralyzing","plague","plagued","plaguing","pollution","poweroutage","radiation","rain","rainstorm","rescue","rescued","rescuer","rescuers","rescuing","reservoir","resilience","resilient","resistance","resistant","respond","responded","responding","response","restoration","restore","restored","restoring","restraint","restrict","restricted","restricting","restriction","restrictive","retreat","retreated","retreating","retreats"]:
+    for keyword in ["Tornado", "Hurricane", "Wildfire", "Tsunami", "Earthquake", "Flood", "Blizzard", "Other", "Weather", "Disaster","Emergency","Alert","Warning","Watch","Tracker","Report","Update","News","Info","Help","Support","Assistance","Rescue","Relief","Aid","Donation","Volunteer","Shelter","Evacuation","Preparedness","Safety","Security","Protection","Survival","Recovery","Response","Mitigation","Advisory","Guidance","Recommendation", "blast","blaze","blazing","blizzard","blood","bloodshed","blown","blown-over","blown-up","blownout","blownover","blownup","bluster","blustery","bomb","blaze","cyclone","damage","danger","dangerous","dead","death","debris","destruction","devastate","devastated","devastating","devastation","disaster","displaced","drought","drown","drowned","drowning","dust","duststorm","earthquake","emergency","evacuate","evacuated","evacuating","evacuation","explode","exploded","explosion","explosive","famine","fatal","fatalities","fatality","fear","fire","flood","flooding","floods","forestfire","gas","gasleak","gust","gusty","hail","hailstorm","hazard","hazardous","hazards","heat","heatwave","helicopter","help","hurricane","injured","injuries","injury","landslide","lava","lightning","mud","mudslide","naturaldisaster","nuclear","nuclearfallout","nuclearmeltdown","nuclearwaste","nuclearwinter","outbreak","overcast","overheat","overheated","overheating","overpower","overpowered","overpowering","overwhelm","overwhelmed","overwhelming","panic","panicked","panicking","paralyze","paralyzed","paralyzing","plague","plagued","plaguing","pollution","poweroutage","radiation","rain","rainstorm","rescue","rescued","rescuer","rescuers","rescuing","reservoir","resilience","resilient","resistance","resistant","respond","responded","responding","response","restoration","restore","restored","restoring","restraint","restrict","restricted","restricting","restriction","restrictive","retreat","retreated","retreating","retreats","risk","risky","rubble","safety","salvage","salvaged","salvaging","sandstorm","savage","savaged","savaging","scorch","scorched","scorching","seismic","shelter","sheltered","sheltering","shelters","shock","shocked","shocking","shocks","shook","sinkhole"]:
         # Get posts as tuples
         rows = search_posts_and_send(keyword)
 
@@ -113,10 +114,9 @@ def search_posts_and_send(keyword):
     """Search posts by keyword, analyze sentiment, and store in DB."""
     try:
         rows = []
-        for _ in range(1):  # Repeat 5 times
+        for _ in range(1):  # REMOVE NOT DOING ANYTHING
             # Fetch posts containing the keyword using Bluesky's searchPosts method
-            #response = client.app.bsky.feed.search_posts({'q': keyword, 'lang': 'en','limit': 100})
-            response = client.app.bsky.feed.search_posts({'q': keyword, 'lang': 'en','limit': 5}) #fixme, remove
+            response = client.app.bsky.feed.search_posts({'q': keyword, 'lang': 'en','limit': 100})
             # If response is valid, process the posts
             if response and hasattr(response, 'posts'):  # Check if 'posts' attribute exists
                 for post in response.posts:
@@ -137,9 +137,12 @@ def search_posts_and_send(keyword):
                             elif('.' in post.record.created_at and post.record.created_at.endswith('Z')):
                                 created_at_fixed = post.record.created_at
                                 timeposted = datetime.datetime.strptime(created_at_fixed, "%Y-%m-%dT%H:%M:%SZ")
-                        except:
+                            else:
                                 created_at_fixed = post.record.created_at
                                 timeposted = datetime.datetime.strptime(created_at_fixed, "%Y-%m-%dT%H:%M:%S.%fZ")
+                        except (ValueError) as e_time:
+                            print(f"Skipping post {post_uri} due to timestamp parsing error: {e_time}.'")
+                            continue
 
                         sentiment_score = analyze_sentiment_vader(post_text)
 

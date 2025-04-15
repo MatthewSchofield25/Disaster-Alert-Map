@@ -42,8 +42,32 @@ from tensorflow.keras.layers import Dense
 from keras.optimizers import Adam,SGD
 from tensorflow.keras import regularizers
 from tensorflow.keras.callbacks import *
-n_epoch = 30
+import datetime
 
+# new Kenny requitements
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from torch.utils.data import Dataset, DataLoader
+from transformers import AutoTokenizer, AutoModel
+from torch.optim import AdamW
+from sklearn.metrics import accuracy_score, classification_report, precision_score, recall_score, f1_score, precision_recall_curve, auc
+from torch.cuda.amp import autocast, GradScaler
+import matplotlib.pyplot as plt
+from sklearn.utils import resample
+from collections import Counter
+
+nlp = spacy.load("en_core_web_sm")
+nltk.download('stopwords')
+nltk.download('vader_lexicon')
+nltk.download('wordnet')
+
+# device
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print("Using device:", device)
+
+
+n_epoch = 30
 load_dotenv() #load the .env file
 driver = '{ODBC Driver 18 for SQL Server}'
 server = os.getenv("DATABASE_SERVER")
@@ -58,12 +82,6 @@ print(f"DATABASE_NAME: {database}")
 print(f"DATABASE_USERNAME: {username}")
 print(f"DATABASE_PASSWORD: {password}")
 '''
-
-nlp = spacy.load("en_core_web_sm")
-
-nltk.download('stopwords')
-nltk.download('vader_lexicon')
-nltk.download('wordnet')
 
 #preprocessing
 lemmatizer = WordNetLemmatizer()
@@ -118,7 +136,21 @@ async def load_data_test():
         return None
     print("SQL server connection successful: connected to Bluesky_Posts")
     cursor = db.cursor()
-    cursor.execute("SELECT * FROM Bluesky_Posts")
+
+    # calculate one hour ago
+    last_hour = datetime.datetime.now() - datetime.timedelta(hours=1)
+    sql_time = last_hour.strftime('%Y-%m-%d %H:%M:%S')  # format time for SQL server
+
+    print(f"Fetching posts after time: {sql_time}")
+
+    query = """
+    SELECT * FROM Bluesky_Posts 
+    WHERE timeposted >= ?
+    """
+
+    #cursor.execute("SELECT * FROM Bluesky_Posts")      # old query: fetches ALL posts
+    cursor.execute(query, (sql_time))
+    
     results = cursor.fetchall()
     columns = [column[0] for column in cursor.description]
     test = pd.DataFrame.from_records(results, columns=columns)
@@ -508,4 +540,4 @@ async def main() -> None:
         print(f"Error inserting into LSTM_Posts: {e}")
 
 if __name__ == '__main__':
-    asyncio.run(main())
+    main()
