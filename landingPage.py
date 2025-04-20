@@ -224,8 +224,9 @@ def create_sentiment_graph(filtered_df, group_by='category'):
                 )
             )
         )
+        #add .iloc[0] to avg_df['category'] to get the first value
+        title = f"Sentiment Trend with '{avg_df['category'].iloc[0]}' Average"
 
-        title = f"Sentiment Trend with '{avg_df['category']}' Average"
 
     # for the top 4 disaster part of
     elif group_by == 'location':
