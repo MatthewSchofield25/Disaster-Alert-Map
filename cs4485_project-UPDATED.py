@@ -145,7 +145,7 @@ test["Sentiment"] = test["text"].apply(sentiment_ana)
 train["Sentiment_Label"] = train["text"].apply(sentiment_ana_label)
 test["Sentiment_Label"] = test["text"].apply(sentiment_ana_label)
 
-train["Location_Test"] = train["text"].apply(extract_locations)
+train["location"] = train["text"].apply(extract_locations)
 
 
 common_words_uni = top_ngrams(train["Cleaned_text"],20,1)
