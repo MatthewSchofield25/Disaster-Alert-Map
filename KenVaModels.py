@@ -61,7 +61,6 @@ nltk.download('wordnet')
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print("Using device:", device)
 
-
 n_epoch = 30
 load_dotenv() #load the .env file
 driver = '{ODBC Driver 18 for SQL Server}'
@@ -78,8 +77,8 @@ print(f"DATABASE_USERNAME: {username}")
 print(f"DATABASE_PASSWORD: {password}")
 '''
 #download bertweet
-#AutoTokenizer.from_pretrained("vinai/bertweet-base").save_pretrained("./bertweet-local")
-#AutoModel.from_pretrained("vinai/bertweet-base").save_pretrained("./bertweet-local")
+AutoTokenizer.from_pretrained("vinai/bertweet-base").save_pretrained("./bertweet-local")
+AutoModel.from_pretrained("vinai/bertweet-base").save_pretrained("./bertweet-local")
 
 #preprocessing
 lemmatizer = WordNetLemmatizer()
@@ -136,21 +135,28 @@ def load_data_test():
     print("SQL server connection successful: connected to Bluesky_Posts")
     cursor = db.cursor()
 
+    '''
+    ### Use to process the LAST HOUR of posts ###
     # calculate one hour ago
     last_hour = datetime.datetime.now() - datetime.timedelta(hours=1)
     sql_time = last_hour.strftime('%Y-%m-%d %H:%M:%S')  # format time for SQL server
 
     print(f"Fetching posts after time: {sql_time}")
-
-    #use this to process the last hour of post
+    
+    #use this to process the last hour of posts
     query = """
     SELECT * FROM Bluesky_Posts 
     WHERE timeposted >= ?
     """
     cursor.execute(query, (sql_time,))
-    
-    #use this to rpocess all posts in Bluesky_Posts
-    #cursor.execute("SELECT * FROM Bluesky_Posts")      # old query: fetches ALL posts
+    '''
+
+    ### Use to process ALL posts in Bluesky_Posts ###
+    cursor.execute("SELECT * FROM Bluesky_Posts")      # old query: fetches ALL posts
+
+    #Liz: Used for testing when implementing coordinates
+    #    today_time = '2025-04-21 01:00:00.000'
+    #   cursor.execute(query, (today_time,))
     
     results = cursor.fetchall()
     columns = [column[0] for column in cursor.description]
@@ -182,6 +188,11 @@ def send_LSTM_data(relevant_posts):
                 print(f"Invalid category '{row.category}' for post_uri: {row.post_uri}. Skipping this row.")
                 continue
 
+             # ensure latitude and longitude are valid
+             # rows without lat and lon are saved as "None", not nan
+            lat = round(float(row.LAT), 6) if pd.notna(row.LAT) and not np.isnan(row.LAT) else None
+            lon = round(float(row.LON), 6) if pd.notna(row.LON) and not np.isnan(row.LON) else None
+
             insert_stmt = posts_table.insert().values(
                 post_uri =              row.post_uri,
                 post_author =           row.post_author,
@@ -194,7 +205,9 @@ def send_LSTM_data(relevant_posts):
                 cleaned_text =          row.cleaned_text,
                 category =              row.category,
                 sentiment_label =       row.sentiment_label,
-                prediction =            row.prediction
+                prediction =            row.prediction,
+                LAT =                   lat,
+                LON =                   lon
             )
             try:
                 connection.execute(insert_stmt)
@@ -540,11 +553,144 @@ def run_model2(relevant_posts):
 
     # Convert probabilities to binary values (0 or 1)
     binary_predictions = (predictions > 0.5).astype(int)
-    relevant_posts['prediction'] = binary_predictions
+    relevant_posts['prediction'] = binary_predictions     
     
-    relevant_posts.to_csv('BlueSkyTestPredictions.csv', index=False)
+    ### MOVED TO END OF K-MEANS ALGO
+    ### K-Means Clustering Function; Clusters similar disaster posts with each other so we can detect ongoing situations. Kinda simple for now, will update later.
+    ##### UPDATE: Updated K-means with location and time; location is not filtered for states. I'll keep working on that and see if it can work.
+
+    from sklearn.cluster import KMeans
+    from scipy.sparse import hstack
+
+    # TF-IDF Encoding Function
+    def encoding(train_data, test_data):
+        tfidf = TfidfVectorizer(
+            ngram_range=(1, 1), use_idf=True, smooth_idf=True, sublinear_tf=True
+        )
+        tf_df_train = tfidf.fit_transform(train_data).toarray()
+        train_df = pd.DataFrame(tf_df_train, columns=tfidf.get_feature_names_out())
+        tf_df_test = tfidf.transform(test_data).toarray()
+        test_df = pd.DataFrame(tf_df_test, columns=tfidf.get_feature_names_out())
+
+        return train_df, test_df, tfidf
     
-    return relevant_posts    
+    disaster_posts = relevant_posts[relevant_posts['prediction'] == 1].copy()
+    disaster_posts['original_index'] = disaster_posts.index
+
+    relevant_posts['location'] = relevant_posts['location'].apply(
+        lambda x: ', '.join(x) if isinstance(x, list) else x
+    )
+
+    from sklearn.preprocessing import OneHotEncoder
+
+    disaster_posts['location'] = disaster_posts['location'].fillna("unknown").astype(str)
+    location_encoder = OneHotEncoder(handle_unknown='ignore', sparse_output=True)
+    location_encoded = location_encoder.fit_transform(disaster_posts[['location']])
+    
+    # Check if there are any disaster posts
+    if not disaster_posts.empty:
+        disaster_posts['text'] = disaster_posts['cleaned_text']
+
+        # TF-IDF vectorization
+        _, disaster_tfidf_matrix, tfidf = encoding(train["cleaned_text"], disaster_posts['text'])
+
+        combined_features = hstack([
+            disaster_tfidf_matrix,
+            location_encoded
+        ])
+
+        # Cluster if enough data
+        if combined_features.shape[0] > 1 and combined_features.shape[1] > 1:
+            ### IMPORTANT: Change value to a lower number, preferably 100 or less
+            num_clusters = min(100, combined_features.shape[0])
+
+            kmeans = KMeans(n_clusters=num_clusters, random_state=42)
+            kmeans.fit(combined_features)
+
+            # Save original index BEFORE reset
+            disaster_posts['cluster'] = kmeans.labels_
+            relevant_posts.loc[disaster_posts['original_index'], 'cluster'] = disaster_posts['cluster'].value_counts
+        
+            '''
+            for cluster_id, group in relevant_posts[relevant_posts['cluster'].notnull()].groupby('cluster'):
+                top_locs = group['location'].value_counts().head(3)
+                #print(f"Cluster {cluster_id} - Posts:")
+                #print(group['cleaned_text'].head(5).to_string(index=False))
+                #print(top_locs.to_string(), "\n")
+            '''
+            # Initialize 'cluster'
+            relevant_posts['cluster'] = None
+
+            # Write the cluster labels into test at the right rows
+            relevant_posts.loc[disaster_posts['original_index'], ['cluster']] = disaster_posts['cluster'].values
+    
+        else:
+            print("Not enough data to perform clustering.")
+    else:
+        print("No disaster posts found for clustering.")
+    
+    ### Gets locations of clusters and their coordinates
+    from geopy.extra.rate_limiter import RateLimiter
+
+    relevant_posts['cluster'] = pd.to_numeric(relevant_posts['cluster'], errors='coerce')
+    
+    # Geocoding setup
+    geolocator = Nominatim(user_agent="cluster_location_geocoder")
+    geocode = RateLimiter(geolocator.geocode, min_delay_seconds=1)
+    location_cache = {}
+
+    def get_coordinates(location):
+        if location in location_cache:
+            return location_cache[location]
+        try:
+            loc = geocode(location)
+            if loc:
+                coords = (loc.latitude, loc.longitude)
+                location_cache[location] = coords
+                return coords
+        except:
+            pass
+        location_cache[location] = (np.nan, np.nan)
+        return (np.nan, np.nan)
+    
+    # Get most common location per cluster
+    cluster_location_mode = (
+        relevant_posts[relevant_posts['cluster'].notnull()]
+        .groupby('cluster')['location']
+        .agg(lambda x: x.mode().iloc[0] if not x.mode().empty else "unknown")
+        .reset_index()
+        .rename(columns={"location": "Most_Common_Location"})
+    )
+
+    # Geocode locations
+    cluster_location_mode['Coordinates'] = cluster_location_mode['Most_Common_Location'].apply(get_coordinates)
+
+    cluster_location_mode['Coordinates'] = cluster_location_mode['Coordinates'].apply(
+        lambda x: x if isinstance(x, (tuple, list)) and len(x) == 2 else (np.nan, np.nan)
+    )
+    cluster_location_mode['lat'] = cluster_location_mode['Coordinates'].apply(lambda x: x[0])
+    cluster_location_mode['lon'] = cluster_location_mode['Coordinates'].apply(lambda x: x[1])
+
+    # Filter through US coordinates
+    us_clusters = cluster_location_mode[
+        (cluster_location_mode['lat'].between(24, 49)) &
+        (cluster_location_mode['lon'].between(-125, -66))
+    ]
+
+    lat_map = us_clusters.set_index('cluster')['lat'].to_dict()
+    lon_map = us_clusters.set_index('cluster')['lon'].to_dict()
+    
+    # Without filter
+    #lat_map = cluster_location_mode.set_index('cluster')['lat'].to_dict()
+    #lon_map = cluster_location_mode.set_index('cluster')['lon'].to_dict()
+
+    # Save back to db
+    relevant_posts['LAT'] = relevant_posts['cluster'].map(lat_map)
+    relevant_posts['LON'] = relevant_posts['cluster'].map(lon_map)
+
+    relevant_posts.to_csv('BlueSkyTestPredictions.csv', index=False)    
+    return relevant_posts   
+# end run_model2
 
 def main() -> None:
     try:
