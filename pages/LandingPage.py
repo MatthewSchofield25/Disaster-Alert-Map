@@ -451,10 +451,10 @@ app.layout = html.Div(
         html.Div(
             className="container",  # Bootstrap container for proper width control
             children=[
-                html.H1(
-                    children='Natural Disaster Sentiment Analysis',
-                    style={'textAlign': 'left', 'marginTop': '5px'}
-                ),
+                #html.H1(
+                #    children='Natural Disaster Sentiment Analysis',
+                #    style={'textAlign': 'left', 'marginTop': '5px'}
+                #),
                 # Flexbox row for sidebar and graph
                 html.Div(
                     style={
