@@ -65,11 +65,35 @@ info_blurb = dbc.Container(
     dbc.Row([
         dbc.Col([
             html.H2("About Us", className="text-center mb-4"),
-            html.P(
-                "The team : Matthew Schofield, Liz Cadungog, Kenny Rodriguez, Vanessa Alvarez, Adam Mondragon, Gail Hernandez"
+            html.H4(
+                "The team : "
+            ),
+            dbc.Card(
+                dbc.CardBody([
+                    html.H4("Team Leader"),
+                    html.P("Matthew Schofield")
+                ])
+            ),
+            dbc.Card(
+                dbc.CardBody([
+                    html.H4("Scrum Master"),
+                    html.P("Liz Cadungog")
+                ])
+            ),
+            dbc.Card(
+                dbc.CardBody([
+                    html.H4("Data Scientists"),
+                    html.P("Vanessa Alvarez, Kenny Rodriguez")
+                ])
+            ),
+            dbc.Card(
+                dbc.CardBody([
+                    html.H4("Front-End Developers"),
+                    html.P("Gail Hernandez, Adam Mondragon")
+                ])
             ),
             html.P(
-                "We are a group of students at the University of Texas at Dallas (there's gonna be more later)"
+                "We are a group of students at the University of Texas at Dallas who have worked to create a dashboard to show the public sentiment about current and recent natural disasters by using data collected from Bluesky posts. We want our dashboard to be an accessible and reliable source of information regarding the sentiment of these events from the perspectives of the people, without the biases and filters of traditional news sources. "
             )
         ])
     ])
@@ -77,7 +101,7 @@ info_blurb = dbc.Container(
 
 layout = html.Div(
         children=[
-            postofnote,
+            #postofnote,
             info_blurb,
                 dbc.Container([
                     # Heading paragraph
