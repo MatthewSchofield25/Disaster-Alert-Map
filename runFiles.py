@@ -3,7 +3,7 @@ import datetime
 import subprocess
 import logging
 import sys
-import KenLSTMModel
+import KenVaModels
 import SearchandSendPosts
 import os
 os.environ["PYTHONUTF8"] = "1"
@@ -54,21 +54,21 @@ def run_scheduled_tasks():
         
         try:
             # after sending posts, run through the models
-            logging.info("Running KenLSTMModel.py")
+            logging.info("Running KenVaModels.py")
             models_result = subprocess.run(
-            [venv_python, "KenLSTMModel.py"], 
+            [venv_python, "KenVaModels.py"], 
                 stdout=sys.stdout,
                 stderr=sys.stderr,
                 text=True, 
                 check=False
             )
             if models_result.returncode == 0:
-                logging.info("KenLSTMModel.py executed successfully")
+                logging.info("KenVaModels.py executed successfully")
             else:
-                logging.error(f"KenLSTMModel.py failed with exit code {models_result.returncode}")
+                logging.error(f"KenVaModels.py failed with exit code {models_result.returncode}")
                 logging.error(f"Error: {models_result.stderr}")
         except Exception as e2:
-            logging.error(f"Error in KenLSTMModel.py tasks: {str(e2)}")
+            logging.error(f"Error in KenVaModels.py tasks: {str(e2)}")
 
         # Calculate next run time
         next_run = datetime.datetime.now() + datetime.timedelta(hours=1)
