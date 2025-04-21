@@ -345,9 +345,8 @@ test['prediction'] = binary_predictions
 ##### UPDATE: Updated K-means with location and time; location is not filtered for states. I'll keep working on that and see if it can work.
 
 from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.preprocessing import StandardScaler
 from sklearn.cluster import KMeans
-from scipy.sparse import hstack, csr_matrix
+from scipy.sparse import hstack
 import pandas as pd
 
 # TF-IDF Encoding Function
@@ -366,66 +365,120 @@ def encoding(train_data, test_data):
 disaster_posts = test[test['prediction'] == 1].copy()
 disaster_posts['original_index'] = disaster_posts.index
 
-test['Location_Test'] = test['Location_Test'].apply(
+test['location'] = test['location'].apply(
     lambda x: ', '.join(x) if isinstance(x, list) else x
 )
 
 from sklearn.preprocessing import OneHotEncoder
 
-disaster_posts['Location_Test'] = disaster_posts['Location_Test'].fillna("unknown").astype(str)
+disaster_posts['location'] = disaster_posts['location'].fillna("unknown").astype(str)
 location_encoder = OneHotEncoder(handle_unknown='ignore', sparse_output=True)
-location_encoded = location_encoder.fit_transform(disaster_posts[['Location_Test']])
+location_encoded = location_encoder.fit_transform(disaster_posts[['location']])
 
 # Check if there are any disaster posts
 if not disaster_posts.empty:
     disaster_posts['text'] = disaster_posts['Cleaned_text']
-    disaster_posts['timeposted'] = pd.to_datetime(disaster_posts['timeposted'])
-
-    # Get time
-    disaster_posts['year'] = disaster_posts['timeposted'].dt.year
-    disaster_posts['month'] = disaster_posts['timeposted'].dt.month
-    disaster_posts['day'] = disaster_posts['timeposted'].dt.day
-    disaster_posts['hour'] = disaster_posts['timeposted'].dt.hour
 
     # TF-IDF vectorization
     _, disaster_tfidf_matrix, tfidf = encoding(train["Cleaned_text"], disaster_posts['text'])
 
-    # Scale time features
-    date_features = disaster_posts[['year', 'month', 'day', 'hour']].values
-    date_features_scaled = StandardScaler().fit_transform(date_features)
-
     combined_features = hstack([
         disaster_tfidf_matrix,
-        csr_matrix(date_features_scaled),
         location_encoded
     ])
 
     # Cluster if enough data
     if combined_features.shape[0] > 1 and combined_features.shape[1] > 1:
-        num_clusters = min(600, combined_features.shape[0])
+        ### IMPORTANT: Change value to a lower number, preferably 100 or less
+        num_clusters = min(100, combined_features.shape[0])
 
         kmeans = KMeans(n_clusters=num_clusters, random_state=42)
         kmeans.fit(combined_features)
 
-        disaster_posts = disaster_posts.reset_index(drop=True)
-        test.loc[test['prediction'] == 1, 'cluster'] = kmeans.labels_
+        # Save original index BEFORE reset
+        disaster_posts['cluster'] = kmeans.labels_
+        test.loc[disaster_posts['original_index'], 'cluster'] = disaster_posts['cluster'].values
 
-
+        '''
         for cluster_id, group in test[test['cluster'].notnull()].groupby('cluster'):
-            top_locs = group['Location_Test'].value_counts().head(3)
-            print(f"Cluster {cluster_id} - Posts:")
-            print(group['Cleaned_text'].head(5).to_string(index=False))
-            print(top_locs.to_string(), "\n")
-
+            top_locs = group['location'].value_counts().head(3)
+            #print(f"Cluster {cluster_id} - Posts:")
+            #print(group['Cleaned_text'].head(5).to_string(index=False))
+            #print(top_locs.to_string(), "\n")
+        '''
         # Initialize 'cluster'
         test['cluster'] = None
 
         # Write the cluster labels into test at the right rows
-        test.loc[disaster_posts['original_index'], 'cluster'] = disaster_posts['cluster'].values
+        test.loc[disaster_posts['original_index'], ['cluster']] = disaster_posts['cluster'].values
 
-        test.to_csv('BlueSkyTestPredictions.csv', index=False)
 
     else:
         print("Not enough data to perform clustering.")
 else:
     print("No disaster posts found for clustering.")
+
+
+### Gets locations of clusters and their coordinates
+
+from geopy.geocoders import Nominatim
+from geopy.extra.rate_limiter import RateLimiter
+import numpy as np
+
+test['cluster'] = pd.to_numeric(test['cluster'], errors='coerce')
+
+# Geocoding setup
+geolocator = Nominatim(user_agent="cluster_location_geocoder")
+geocode = RateLimiter(geolocator.geocode, min_delay_seconds=1)
+location_cache = {}
+
+def get_coordinates(location):
+    if location in location_cache:
+        return location_cache[location]
+    try:
+        loc = geocode(location)
+        if loc:
+            coords = (loc.latitude, loc.longitude)
+            location_cache[location] = coords
+            return coords
+    except:
+        pass
+    location_cache[location] = (np.nan, np.nan)
+    return (np.nan, np.nan)
+
+
+# Get most common location per cluster
+cluster_location_mode = (
+    test[test['cluster'].notnull()]
+    .groupby('cluster')['location']
+    .agg(lambda x: x.mode().iloc[0] if not x.mode().empty else "unknown")
+    .reset_index()
+    .rename(columns={"location": "Most_Common_Location"})
+)
+
+# Geocode locations
+cluster_location_mode['Coordinates'] = cluster_location_mode['Most_Common_Location'].apply(get_coordinates)
+
+cluster_location_mode['Coordinates'] = cluster_location_mode['Coordinates'].apply(
+    lambda x: x if isinstance(x, (tuple, list)) and len(x) == 2 else (np.nan, np.nan)
+)
+cluster_location_mode['lat'] = cluster_location_mode['Coordinates'].apply(lambda x: x[0])
+cluster_location_mode['lon'] = cluster_location_mode['Coordinates'].apply(lambda x: x[1])
+
+# Filter through US coordinates
+us_clusters = cluster_location_mode[
+    (cluster_location_mode['lat'].between(24, 49)) &
+    (cluster_location_mode['lon'].between(-125, -66))
+]
+
+lat_map = us_clusters.set_index('cluster')['lat'].to_dict()
+lon_map = us_clusters.set_index('cluster')['lon'].to_dict()
+
+# Without filter
+#lat_map = cluster_location_mode.set_index('cluster')['lat'].to_dict()
+#lon_map = cluster_location_mode.set_index('cluster')['lon'].to_dict()
+
+# Save back to db
+test['LAT'] = test['cluster'].map(lat_map)
+test['LON'] = test['cluster'].map(lon_map)
+
