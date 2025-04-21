@@ -3,12 +3,15 @@ import pandas as pd
 import numpy as np
 import re
 import nltk
+import time
+from tqdm import tqdm
 from nltk.corpus import stopwords, wordnet
 from nltk.stem import WordNetLemmatizer
 from nltk.sentiment.vader import SentimentIntensityAnalyzer
 nltk.download('stopwords')
 nltk.download('wordnet')
 from nltk.stem.porter import PorterStemmer
+from sqlalchemy import create_engine, Table, MetaData
 
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LogisticRegression
@@ -45,7 +48,6 @@ from torch.utils.data import Dataset, DataLoader
 from transformers import AutoTokenizer, AutoModel
 from torch.optim import AdamW
 from sklearn.metrics import accuracy_score, classification_report, precision_score, recall_score, f1_score, precision_recall_curve, auc
-from torch.cuda.amp import autocast, GradScaler
 import matplotlib.pyplot as plt
 from sklearn.utils import resample
 from collections import Counter
@@ -75,6 +77,9 @@ print(f"DATABASE_NAME: {database}")
 print(f"DATABASE_USERNAME: {username}")
 print(f"DATABASE_PASSWORD: {password}")
 '''
+#download bertweet
+#AutoTokenizer.from_pretrained("vinai/bertweet-base").save_pretrained("./bertweet-local")
+#AutoModel.from_pretrained("vinai/bertweet-base").save_pretrained("./bertweet-local")
 
 #preprocessing
 lemmatizer = WordNetLemmatizer()
@@ -91,7 +96,8 @@ disaster_keywords = {
         "Volcano": ["volcano", "eruption", "lava", "ash cloud", "magma"],
         "Landslide": ["landslide", "mudslide", "rockfall", "avalanche"],
         "Drought": ["drought", "water shortage", "dry spell", "desertification"],
-        "Blizzard": ["blizzard", "snowstorm", "ice storm", "whiteout"]
+        "Blizzard": ["blizzard", "snowstorm", "ice storm", "whiteout"],
+        "Other": []
     }
 
 def preprocess_data(data):
@@ -109,7 +115,7 @@ def categorize_disaster(text):
             return disaster
     return "Other"
 
-def extract_location(text):
+def extract_locations(text):
     doc = nlp(text)
     locations = [ent.text for ent in doc.ents if ent.label_ == "GPE"]
     return ", ".join(locations) if locations else "None"
@@ -136,13 +142,15 @@ def load_data_test():
 
     print(f"Fetching posts after time: {sql_time}")
 
+    '''
     query = """
     SELECT * FROM Bluesky_Posts 
     WHERE timeposted >= ?
     """
-
-    #cursor.execute("SELECT * FROM Bluesky_Posts")      # old query: fetches ALL posts
     cursor.execute(query, (sql_time,))
+    '''
+    
+    cursor.execute("SELECT * FROM Bluesky_Posts")      # old query: fetches ALL posts
     
     results = cursor.fetchall()
     columns = [column[0] for column in cursor.description]
@@ -155,370 +163,158 @@ def load_data_test():
 
 #loads Vanessa's model output into the table LSTM_Posts, 4_2
 def send_LSTM_data(relevant_posts):
-    try:
-        conn = pyodbc.connect(f'DRIVER={driver};SERVER={server};DATABASE={database};UID={username};PWD={password}')
-    except Exception as e:
-        print(f"Error connecting to SQL Server: {e}")
-        return None
-    print("SQL server connection successful: connected to LSTM_Posts")
-    cursor = conn.cursor()
-    
-    # valid categories for CATEGORY_CHECK constraint
-    valid_categories = {'Flood', 'Drought', 'Landslide', 'Volcano', 'Blizzard',
-                        'Earthquake', 'Tsunami', 'Wildfire', 'Hurricane', 'Tornado', 'Other'}
-    
-    for index, row in relevant_posts.iterrows():
-        # validate current category
-        if row.category not in valid_categories:
-            print(f"Invalid category '{row.category}' for post_uri: {row.post_uri}. Skipping this row.")
-            continue 
-        
-        try:
-            cursor.execute(
-                """
-                INSERT INTO LSTM_Posts (
-                    post_uri, post_author, post_author_display, post_text, timeposted,
-                    sentiment_score, keyword, location, cleaned_text, category,
-                    sentiment_label, prediction
-                )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                row.post_uri, row.post_author, row.post_author_display, row.text,
-                row.timeposted, row.sentiment_score, row.keyword, row.location,
-                row.cleaned_text, row.category, row.sentiment_label, row.prediction
+    valid_categories = {    'Flood', 'Drought', 'Landslide', 'Volcano', 'Blizzard',
+                            'Earthquake', 'Tsunami', 'Wildfire', 'Hurricane', 'Tornado', 'Other' }
+
+    # using the ODBC driver 18, create a connection engine to Azure SQL server
+    engine = create_engine(
+        f"mssql+pyodbc://{username}:{password}@{server}/{database}?driver=ODBC+Driver+18+for+SQL+Server"
+    )
+
+    with engine.begin() as connection:
+        metadata = MetaData()           # container for data definitions
+        metadata.reflect(bind=engine)   # loads existing schemas into metadata
+
+        posts_table = Table('LSTM_Posts', metadata, autoload_with=connection)   # retrieves LSTM_Posts table
+
+        for index, row in relevant_posts.iterrows():
+            if row.category not in valid_categories:
+                print(f"Invalid category '{row.category}' for post_uri: {row.post_uri}. Skipping this row.")
+                continue
+
+            insert_stmt = posts_table.insert().values(
+                post_uri =              row.post_uri,
+                post_author =           row.post_author,
+                post_author_display =   row.post_author_display,
+                post_text =             row.text,
+                timeposted  =           row.timeposted,
+                sentiment_score =       row.sentiment_score,
+                keyword =               row.keyword,
+                location =              row.location,
+                cleaned_text =          row.cleaned_text,
+                category =              row.category,
+                sentiment_label =       row.sentiment_label,
+                prediction =            row.prediction
             )
-        except pyodbc.IntegrityError as dup_error:
-            print(f"Duplicate entry skipped for post_uri: {row.post_uri}")
-            continue  # handles duplicate posts
-    conn.commit()
-    cursor.close()
-    conn.close()
+            try:
+                connection.execute(insert_stmt)
+            except Exception as e:
+                if 'duplicate' in str(e).lower():
+                    print(f"Duplicate entry skipped for post_uri: {row.post_uri}")
+                else:
+                    print(f"Error inserting post_uri: {row.post_uri} — {e}")
+
     return "Data inserted into LSTM_Posts" 
 
-# first model, Kenny's model
+# first model, Kenny's BERTmodel
 def run_model1(train, bluesky_df):
-    # load and merge training datasets
-    train_df1 = pd.read_csv("train.csv").rename(columns={"Text": "text", "Label": "target"})
-    train_df2 = pd.read_csv("Bluesky_Training_Labeled_1000.csv", encoding='latin1')\
-              .rename(columns={"post_text": "text", "Label": "target"})
-    train_df = pd.concat([train_df1, train_df2], ignore_index=True)
 
-# model
-class MultiTaskDisasterModel(nn.Module):
-    def __init__(self, base_model="vinai/bertweet-base", num_disaster_classes=12):
-        super().__init__()
-        self.encoder = AutoModel.from_pretrained(base_model)
-        hidden = self.encoder.config.hidden_size
-        self.relevance_head = nn.Linear(hidden, 1)
-        self.disaster_head = nn.Linear(hidden, num_disaster_classes)
-        self.sentiment_head = nn.Linear(hidden, 3)
+    # === Tokenize ===
+    tokenizer = AutoTokenizer.from_pretrained("./bertweet-local", use_fast=True)
 
-    def forward(self, input_ids, attention_mask):
-        x = self.encoder(input_ids=input_ids, attention_mask=attention_mask).last_hidden_state[:, 0]
-        return {
-            "relevance": self.relevance_head(x),  # raw logits
-            "disaster_type": self.disaster_head(x),
-            "sentiment": self.sentiment_head(x)
-        }
+    # Category map (list of disaster types)
+    category_map = list(disaster_keywords.keys())
 
-# sentiment score
-sid = SentimentIntensityAnalyzer()
-train_df["Sentiment"] = train_df["text"].apply(lambda t: sid.polarity_scores(t)["compound"])
+    # Model architecture (matching what you trained)
+    class MultiTaskDisasterModel(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.encoder = AutoModel.from_pretrained("./bertweet-local")
+            hidden = self.encoder.config.hidden_size
+            self.relevance_head = nn.Linear(hidden, 1)
+            self.disaster_head = nn.Linear(hidden, len(category_map))
 
-# disaster keywords
-disaster_keywords = {
-    "Earthquake": ["earthquake", "quake", "seismic", "richter", "aftershock", "tremor"],
-    "Wildfire": ["wildfire", "bushfire", "forest fire", "firestorm", "blaze"],
-    "Hurricane": ["hurricane", "cyclone", "typhoon", "storm surge", "tropical storm"],
-    "Flood": ["flood", "flash flood", "heavy rain", "overflow", "dam failure"],
-    "Tornado": ["tornado", "twister", "funnel cloud", "storm"],
-    "Tsunami": ["tsunami", "seismic wave", "ocean surge"],
-    "Volcano": ["volcano", "eruption", "lava", "ash cloud", "magma"],
-    "Landslide": ["landslide", "mudslide", "rockfall", "avalanche"],
-    "Drought": ["drought", "water shortage", "dry spell", "desertification"],
-    "Blizzard": ["blizzard", "snowstorm", "ice storm", "whiteout"],
-    "Storm": ["storm", "windstorm", "hailstorm", "gale", "gust", "storm damage"]
-}
+        def forward(self, input_ids, attention_mask):
+            x = self.encoder(input_ids=input_ids, attention_mask=attention_mask).last_hidden_state[:, 0]
+            return {
+                "relevance": self.relevance_head(x),
+                "disaster_type": self.disaster_head(x)
+            }
 
-def categorize_disaster(text):
-    text = text.lower()
-    for disaster, keywords in disaster_keywords.items():
-        if any(word in text for word in keywords):
-            return disaster
-    return "Other"
-
-# apply disaster category
-category_map = list(disaster_keywords.keys()) + ["Other"]
-cat_to_idx = {c: i for i, c in enumerate(category_map)}
-
-train_df["category"] = train_df["text"].apply(categorize_disaster)
-train_df["category_label"] = train_df["category"].map(cat_to_idx)
-train_df["sentiment_label"] = pd.cut(train_df["Sentiment"], [-1.1, -0.05, 0.05, 1.1], labels=[0, 1, 2]).astype(int)
-
-#print("Class distribution before balancing:")
-#print(train_df["category"].value_counts())
-
-############################### Balance dataset: drop rare classes and downsample 'Other'
-
-# remove extremely rare classes (<10 samples)
-rare_classes = train_df["category"].value_counts()[train_df["category"].value_counts() < 10].index
-train_df = train_df[~train_df["category"].isin(rare_classes)]
-
-# downsample 'Other'
-df_majority = train_df[train_df["category"] == "Other"]
-df_minority = train_df[train_df["category"] != "Other"]
-
-# downsample 'Other' to the size of the largest minority class
-target_size = df_minority["category"].value_counts().max()
-
-df_other_down = resample(
-    df_majority,
-    replace=False,
-    n_samples=target_size,
-    random_state=42
-)
-
-# upsample small classes
-upsampled_minority = []
-for name, group in df_minority.groupby("category"):
-    if len(group) < target_size:
-        group_up = resample(group, replace=True, n_samples=target_size, random_state=42)
-        upsampled_minority.append(group_up)
-    else:
-        upsampled_minority.append(group)
-
-df_minority_balanced = pd.concat(upsampled_minority)
-train_df = pd.concat([df_other_down, df_minority_balanced])
-train_df = train_df.sample(frac=1, random_state=42).reset_index(drop=True)
-
-# re-map labels after balancing
-train_df["category_label"] = train_df["category"].map(cat_to_idx)
-
-#########################
-
-#print("\nClass distribution after balancing:")
-#print(train_df["category"].value_counts())
-
-# View disaster type distribution
-#print("Disaster type counts:")
-#print(train_df["category"].value_counts())
-
-# tokenizer
-tokenizer = AutoTokenizer.from_pretrained("vinai/bertweet-base")
-
-def tokenize_batch(texts):
-    return tokenizer(texts, truncation=True, padding="max_length", max_length=128, return_tensors="pt")
-
-train_texts, val_texts, train_rel, val_rel, train_cat, val_cat, train_sent, val_sent = train_test_split(
-    train_df["text"].tolist(),
-    train_df["target"].tolist(),
-    train_df["category_label"].tolist(),
-    train_df["sentiment_label"].tolist(),
-    test_size=0.2,
-    stratify=train_df["category_label"]
-)
-
-print("Train set class distribution:", Counter(train_cat))
-print("Val set class distribution:", Counter(val_cat))
-
-train_encodings = tokenize_batch(train_texts)
-val_encodings = tokenize_batch(val_texts)
-
-
-class DisasterDataset(Dataset):
-    def __init__(self, encodings, relevance, disaster, sentiment):
-        self.encodings = encodings
-        self.relevance = relevance
-        self.disaster = disaster
-        self.sentiment = sentiment
-
-    def __len__(self):
-        return len(self.relevance)
-
-    def __getitem__(self, idx):
-        return {
-            "input_ids": self.encodings["input_ids"][idx],
-            "attention_mask": self.encodings["attention_mask"][idx],
-            "relevance": torch.tensor(self.relevance[idx], dtype=torch.float),
-            "disaster": torch.tensor(self.disaster[idx], dtype=torch.long),
-            "sentiment": torch.tensor(self.sentiment[idx], dtype=torch.long)
-        }
-
-    train_ds = DisasterDataset(train_encodings, train_rel, train_cat, train_sent)
-    val_ds = DisasterDataset(val_encodings, val_rel, val_cat, val_sent)
-    train_loader = DataLoader(train_ds, batch_size=16, shuffle=True)
-    val_loader = DataLoader(val_ds, batch_size=64)
-
-    # train model
+    # Load model and weights
     model = MultiTaskDisasterModel().to(device)
-    optimizer = AdamW(model.parameters(), lr=2e-5)
-    scaler = GradScaler()
-
-    for epoch in range(3):
-        model.train()
-        total_loss = 0
-        for batch in train_loader:
-            input_ids = batch["input_ids"].to(device)
-            mask = batch["attention_mask"].to(device)
-            rel = batch["relevance"].unsqueeze(1).to(device)
-            cat = batch["disaster"].to(device)
-            sent = batch["sentiment"].to(device)
-
-            optimizer.zero_grad()
-            with autocast():
-                out = model(input_ids=input_ids, attention_mask=mask)
-                loss = (
-                    F.binary_cross_entropy_with_logits(out["relevance"], rel) +
-                    F.cross_entropy(out["disaster_type"], cat) +
-                    F.cross_entropy(out["sentiment"], sent)
-                )
-
-            scaler.scale(loss).backward()
-            scaler.step(optimizer)
-            scaler.update()
-            total_loss += loss.item()
-
-        print(f"Epoch {epoch+1} Loss: {total_loss:.4f}")
-
-    # evaluation with precision-based metrics
+    model.load_state_dict(torch.load("multitask_bertweet_model.pth", map_location=device))
     model.eval()
-    val_loss = 0
-    pred_rel, pred_cat, pred_sent = [], [], []
-    true_rel, true_cat, true_sent = [], [], []
-    raw_rel_logits = []
 
-    with torch.inference_mode():
-        for batch in val_loader:
-            input_ids = batch["input_ids"].to(device)
-            mask = batch["attention_mask"].to(device)
-            rel = batch["relevance"].unsqueeze(1).to(device)
-            cat = batch["disaster"].to(device)
-            sent = batch["sentiment"].to(device)
+    print("Model loaded and ready for inference.")
 
-            out = model(input_ids=input_ids, attention_mask=mask)
-            loss = (
-                F.binary_cross_entropy_with_logits(out["relevance"], rel) +
-                F.cross_entropy(out["disaster_type"], cat) +
-                F.cross_entropy(out["sentiment"], sent)
-            )
-            val_loss += loss.item()
-
-            logits = out["relevance"].squeeze()
-            raw_rel_logits.extend(logits.cpu().tolist())
-            pred_rel.extend((logits > 0.5).int().cpu().tolist())
-
-            pred_cat.extend(torch.argmax(out["disaster_type"], dim=1).cpu().tolist())
-            pred_sent.extend(torch.argmax(out["sentiment"], dim=1).cpu().tolist())
-            true_rel.extend(rel.cpu().int().tolist())
-            true_cat.extend(cat.cpu().tolist())
-            true_sent.extend(sent.cpu().tolist())
-
-    print(f"Validation Loss: {val_loss:.4f}")
-
-    # relevance metrics
-    print("\n[Relevance Metrics]")
-    print("Accuracy:", accuracy_score(true_rel, pred_rel))
-    print("Precision:", precision_score(true_rel, pred_rel))
-    print("Recall:", recall_score(true_rel, pred_rel))
-    print("F1 Score:", f1_score(true_rel, pred_rel))
-
-    # disaster type metrics (only for relevant posts)
-    print("\n[Disaster Type Metrics — Relevant Posts Only]")
-    relevant_mask = [bool(x) for x in true_rel]
-    filtered_true_cat = [c for c, r in zip(true_cat, relevant_mask) if r == 1]
-    filtered_pred_cat = [p for p, r in zip(pred_cat, relevant_mask) if r == 1]
-
-    print("Accuracy:", accuracy_score(filtered_true_cat, filtered_pred_cat))
-    print("Precision:", precision_score(filtered_true_cat, filtered_pred_cat, average='weighted'))
-    print("Recall:", recall_score(filtered_true_cat, filtered_pred_cat, average='weighted'))
-    print("F1 Score:", f1_score(filtered_true_cat, filtered_pred_cat, average='weighted'))
-    print("\nDetailed Classification Report:")
-    print(classification_report(filtered_true_cat, filtered_pred_cat, target_names=category_map))
-
-
-    # load test data and tokenize
-    # bluesky_df uses real posts loaded in load_data_test
-    # bluesky_df = pd.read_csv("TestDataBluesky_No_Overlap_With_Training.csv")
-
+    # Clean text
     def clean_text(text):
         return text.lower().strip()
 
-    bluesky_df["text"] = bluesky_df["post_text"].astype(str)
-    bluesky_df["cleaned_text"] = bluesky_df["text"].apply(clean_text)
+    '''
+    # Extract locations from text
+    def extract_locations(text):
+        doc = nlp(text)
+        return [ent.text for ent in doc.ents if ent.label_ == "GPE"]
+    '''
 
+    # Preprocess Bluesky posts
+    bluesky_df["text"] = bluesky_df["text"].astype(str).apply(clean_text)
+    
+    # Clean text only if needed
+    if "post_text" in bluesky_df.columns:
+        bluesky_df["text"] = bluesky_df["post_text"].astype(str).apply(clean_text)
+    elif "text" in bluesky_df.columns:
+        bluesky_df["text"] = bluesky_df["text"].astype(str).apply(clean_text)
+    else:
+        raise ValueError("No 'text' or 'post_text' column found in test data")
 
-    test_enc = tokenizer(bluesky_df["text"].tolist(), truncation=True, padding=True, max_length=128, return_tensors="pt")
+    # Check if there are any posts
+    if len(bluesky_df) == 0:
+        print("No posts found to predict.")
+        return None
 
+    # Tokenize
+    test_encodings = tokenizer(
+        bluesky_df["text"].tolist(),
+        truncation=True,
+        padding="max_length",
+        max_length=128,
+        return_tensors="pt"
+    )
+
+    # Bluesky dataset
     class BlueskyDataset(Dataset):
-        def __init__(self, enc):
-            self.enc = enc
+        def __init__(self, encodings):
+            self.encodings = encodings
+
         def __len__(self):
-            return len(self.enc["input_ids"])
+            return self.encodings["input_ids"].shape[0]
+
         def __getitem__(self, idx):
             return {
-                "input_ids": self.enc["input_ids"][idx],
-                "attention_mask": self.enc["attention_mask"][idx]
+                "input_ids": self.encodings["input_ids"][idx],
+                "attention_mask": self.encodings["attention_mask"][idx]
             }
 
-    # run inference
-    bluesky_loader = DataLoader(BlueskyDataset(test_enc), batch_size=64)
-    model.eval()
-    all_rel, all_cat, all_sent = [], [], []
+    test_loader = DataLoader(BlueskyDataset(test_encodings), batch_size=64)
+
+    # Inference
+    all_relevance = []
+    all_disaster = []
 
     with torch.inference_mode():
-        for batch in bluesky_loader:
+        for batch in tqdm(test_loader, desc="Predicting Bluesky"):
             input_ids = batch["input_ids"].to(device)
             attention_mask = batch["attention_mask"].to(device)
             out = model(input_ids=input_ids, attention_mask=attention_mask)
 
-            all_rel.extend((out["relevance"].squeeze() > 0.5).int().cpu().tolist())
-            all_cat.extend(torch.argmax(out["disaster_type"], dim=1).cpu().tolist())
-            all_sent.extend(torch.argmax(out["sentiment"], dim=1).cpu().tolist())
+            all_relevance.extend((out["relevance"].squeeze() > 0.5).int().cpu().tolist())
+            all_disaster.extend(torch.argmax(out["disaster_type"], dim=1).cpu().tolist())
 
-    # map predictions to labels
-    bluesky_df["Relevancy"] = all_rel
-    bluesky_df["category"] = [category_map[i] for i in all_cat]
-    bluesky_df["Predicted_Sentiment"] = [ ["Negative", "Neutral", "Positive"][i] for i in all_sent ]
-
-    # NER location extraction
-    def extract_locations(text):
-        doc = nlp(text)
-        return [ent.text for ent in doc.ents if ent.label_ == "GPE"]
-
-    bluesky_df["Locations"] = bluesky_df.apply(
-        lambda row: extract_locations(row["post_text"]) if row["Relevancy"] == 1 else [], axis=1
+    # Map predictions
+    bluesky_df["Relevancy"] = all_relevance
+    bluesky_df["category"] = [category_map[i] for i in all_disaster]
+    bluesky_df["location"] = bluesky_df.apply(
+        lambda row: extract_locations(row["text"]) if row["Relevancy"] == 1 else [], axis=1
     )
 
-    # display and save
-    display(bluesky_df[bluesky_df["Relevancy"] == 1][
-        ["post_text", "category", "Predicted_Sentiment", "Locations"]
-    ].head(30))
+    print("Inference complete. Results saved.")
 
-    # Save final formatted file
-    bluesky_df[[
-        "post_uri", "post_author", "post_author_display", "text", "timeposted",
-        "sentiment_score", "keyword", "location", "cleaned_text", "category", "Relevancy"
-    ]].to_csv("Final_Predicted_Bluesky.csv", index=False)
-
-
-    # === RELEVANCE STATS ===
-    print("Relevance Counts (Predicted):")
-    print(bluesky_df["Relevancy"].value_counts().rename(index={0: "Not Relevant", 1: "Relevant"}))
-    print()
-
-    # === DISASTER TYPE STATS (ALL) ===
-    print("Disaster Type Counts (All Posts):")
-    print(bluesky_df["category"].value_counts())
-    print()
-
-    # === DISASTER TYPE STATS (RELEVANT ONLY) ===
-    print("Disaster Type Counts (Relevant Posts Only):")
-    print(bluesky_df[bluesky_df["Relevancy"] == 1]["category"].value_counts())
-    print()
-
-    relevant_posts = bluesky_df[bluesky_df["Relevant"] == 1].copy()
+    return bluesky_df[bluesky_df["Relevancy"] == 1].copy()
     
-    return relevant_posts
+    #end run_model1
 
 # second model, Vanessa's model
 def run_model2(relevant_posts):
@@ -593,10 +389,12 @@ def run_model2(relevant_posts):
         else:
             return 'neutral'
 
+    '''
     # Define a function to extract location names from a text using SpaCy NER
     def extract_locations(text):
         doc = nlp(text)
         return [ent.text for ent in doc.ents if ent.label_ in ['LOC', 'GPE']]
+    '''
 
     def top_ngrams(data,n,grams):
 
@@ -636,6 +434,7 @@ def run_model2(relevant_posts):
     relevant_posts["sentiment_label"] = relevant_posts["text"].apply(sentiment_ana_label)
 
     train["location"] = train["text"].apply(extract_locations)
+    relevant_posts["location"] = relevant_posts["text"].apply(extract_locations)
 
     common_words_uni = top_ngrams(train["cleaned_text"],20,1)
     common_words_bi = top_ngrams(train["cleaned_text"],20,2)
@@ -753,7 +552,7 @@ def main() -> None:
         test = load_data_test() 
     except Exception as e:
         print(f"Error fetching posts: {e}")
-    
+
     # run model1, Kenny's model
     relevant_posts = run_model1(train, test)
     
