@@ -142,15 +142,15 @@ def load_data_test():
 
     print(f"Fetching posts after time: {sql_time}")
 
-    '''
+    #use this to process the last hour of post
     query = """
     SELECT * FROM Bluesky_Posts 
     WHERE timeposted >= ?
     """
     cursor.execute(query, (sql_time,))
-    '''
     
-    cursor.execute("SELECT * FROM Bluesky_Posts")      # old query: fetches ALL posts
+    #use this to rpocess all posts in Bluesky_Posts
+    #cursor.execute("SELECT * FROM Bluesky_Posts")      # old query: fetches ALL posts
     
     results = cursor.fetchall()
     columns = [column[0] for column in cursor.description]
