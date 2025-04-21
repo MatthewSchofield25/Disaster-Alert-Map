@@ -93,7 +93,8 @@ info_blurb = dbc.Container(
                 ])
             ),
             html.P(
-                "We are a group of students at the University of Texas at Dallas who have worked to create a dashboard to show the public sentiment about current and recent natural disasters by using data collected from Bluesky posts. We want our dashboard to be an accessible and reliable source of information regarding the sentiment of these events from the perspectives of the people, without the biases and filters of traditional news sources. "
+                "We are a group of students at the University of Texas at Dallas who have worked to create a dashboard to show the public sentiment about current and recent natural disasters by using data collected from Bluesky posts. We want our dashboard to be an accessible and reliable source of information regarding the sentiment of these events from the perspectives of the people, without the biases and filters of traditional news sources. ",
+                className="lead text-center mb-5"
             )
         ])
     ])
