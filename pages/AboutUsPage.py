@@ -16,7 +16,7 @@ register_page(
 
 postofnote = html.Div(
     className="bluesky-embed",
-    {
+    **{
         "data-bluesky-uri": "at://did:plc:k5nskatzhyxersjilvtnz4lh/app.bsky.feed.post/3ln445ahyoc2f",
         "data-bluesky-cid": "bafyreicrmal7jdvkdj7kxxy46epzlwxzp3tfxplpjr7aw5gmnh4bwtrr7a",
         "data-bluesky-embed-color-mode": "system"
