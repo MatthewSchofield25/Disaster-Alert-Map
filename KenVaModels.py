@@ -39,6 +39,7 @@ from keras.optimizers import Adam,SGD
 from tensorflow.keras import regularizers
 from tensorflow.keras.callbacks import *
 import datetime
+from decimal import Decimal
 
 # new Kenny requitements
 import torch
