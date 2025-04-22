@@ -1,5 +1,5 @@
 import asyncio
-import datetime
+from datetime import datetime, timezone
 import prisma
 from prisma import Prisma
 from atproto import Client
@@ -29,7 +29,6 @@ async def main() -> None:
     db = Prisma(auto_register=True)
     await db.connect()
 
-    for keyword in ["Hurricane"]: #fixme, remove. used for testing
     #for keyword in ["Tornado", "Hurricane", "Wildfire", "Tsunami", "Earthquake", "Flood", "Blizzard", "Other", "Weather", "Disaster","Emergency","Alert","Warning","Watch","Tracker","Report","Update","News","Info","Help","Support","Assistance","Rescue","Relief","Aid","Donation","Volunteer","Shelter","Evacuation","Preparedness","Safety","Security","Protection","Survival","Recovery","Response","Mitigation","Advisory","Guidance","Recommendation", "blast","blaze","blazing","blizzard","blood","bloodshed","blown","blown-over","blown-up","blownout","blownover","blownup","bluster","blustery","bomb","blaze","cyclone","damage","danger","dangerous","dead","death","debris","destruction","devastate","devastated","devastating","devastation","disaster","displaced","drought","drown","drowned","drowning","dust","duststorm","earthquake","emergency","evacuate","evacuated","evacuating","evacuation","explode","exploded","explosion","explosive","famine","fatal","fatalities","fatality","fear","fire","flood","flooding","floods","forestfire","gas","gasleak","gust","gusty","hail","hailstorm","hazard","hazardous","hazards","heat","heatwave","helicopter","help","hurricane","injured","injuries","injury","landslide","lava","lightning","mud","mudslide","naturaldisaster","nuclear","nuclearfallout","nuclearmeltdown","nuclearwaste","nuclearwinter","outbreak","overcast","overheat","overheated","overheating","overpower","overpowered","overpowering","overwhelm","overwhelmed","overwhelming","panic","panicked","panicking","paralyze","paralyzed","paralyzing","plague","plagued","plaguing","pollution","poweroutage","radiation","rain","rainstorm","rescue","rescued","rescuer","rescuers","rescuing","reservoir","resilience","resilient","resistance","resistant","respond","responded","responding","response","restoration","restore","restored","restoring","restraint","restrict","restricted","restricting","restriction","restrictive","retreat","retreated","retreating","retreats"]:
     for keyword in ["Tornado", "Hurricane", "Wildfire", "Tsunami", "Earthquake", "Flood", "Blizzard", "Other", "Weather", "Disaster","Emergency","Alert","Warning","Watch","Tracker","Report","Update","News","Info","Help","Support","Assistance","Rescue","Relief","Aid","Donation","Volunteer","Shelter","Evacuation","Preparedness","Safety","Security","Protection","Survival","Recovery","Response","Mitigation","Advisory","Guidance","Recommendation", "blast","blaze","blazing","blizzard","blood","bloodshed","blown","blown-over","blown-up","blownout","blownover","blownup","bluster","blustery","bomb","blaze","cyclone","damage","danger","dangerous","dead","death","debris","destruction","devastate","devastated","devastating","devastation","disaster","displaced","drought","drown","drowned","drowning","dust","duststorm","earthquake","emergency","evacuate","evacuated","evacuating","evacuation","explode","exploded","explosion","explosive","famine","fatal","fatalities","fatality","fear","fire","flood","flooding","floods","forestfire","gas","gasleak","gust","gusty","hail","hailstorm","hazard","hazardous","hazards","heat","heatwave","helicopter","help","hurricane","injured","injuries","injury","landslide","lava","lightning","mud","mudslide","naturaldisaster","nuclear","nuclearfallout","nuclearmeltdown","nuclearwaste","nuclearwinter","outbreak","overcast","overheat","overheated","overheating","overpower","overpowered","overpowering","overwhelm","overwhelmed","overwhelming","panic","panicked","panicking","paralyze","paralyzed","paralyzing","plague","plagued","plaguing","pollution","poweroutage","radiation","rain","rainstorm","rescue","rescued","rescuer","rescuers","rescuing","reservoir","resilience","resilient","resistance","resistant","respond","responded","responding","response","restoration","restore","restored","restoring","restraint","restrict","restricted","restricting","restriction","restrictive","retreat","retreated","retreating","retreats","risk","risky","rubble","safety","salvage","salvaged","salvaging","sandstorm","savage","savaged","savaging","scorch","scorched","scorching","seismic","shelter","sheltered","sheltering","shelters","shock","shocked","shocking","shocks","shook","sinkhole"]:
         # Get posts as tuples
@@ -75,7 +74,7 @@ async def main() -> None:
                     print(f"Error inserting post: {e}")
             else:
                 print("Skipping invalid post.")
-                await asyncio.sleep(10)
+            await asyncio.sleep(.01)
 
             print()
     await db.disconnect()
@@ -91,10 +90,6 @@ def validate_post_data(post_data):
         if post_data[key] is None:
             print(f"Null value for key in post_data: {key}")
             return False
-
-    if not isinstance(post_data["timeposted"], datetime.datetime):
-        print(f"Invalid timeposted value: {post_data['timeposted']}")
-        return False
 
     if not isinstance(post_data["sentiment_score"], Decimal):
         print(f"Invalid sentiment_score value: {post_data['sentiment_score']}")
@@ -127,22 +122,10 @@ def search_posts_and_send(keyword):
                         post_author_display = post.author.display_name
                         post_text = post.record.text
                         
-                        try:
-                            if(post.record.created_at[-6] == '+' and post.record.created_at[-9] == ':'):
-                                created_at_fixed = post.record.created_at[:-6]
-                                timeposted = datetime.datetime.strptime(created_at_fixed, "%Y-%m-%dT%H:%M:%S")
-                            elif(post.record.created_at[-6] == '+'):
-                                created_at_fixed = post.record.created_at[:-6]
-                                timeposted = datetime.datetime.strptime(created_at_fixed, "%Y-%m-%dT%H:%M:%S.%f")
-                            elif('.' in post.record.created_at and post.record.created_at.endswith('Z')):
-                                created_at_fixed = post.record.created_at
-                                timeposted = datetime.datetime.strptime(created_at_fixed, "%Y-%m-%dT%H:%M:%SZ")
-                            else:
-                                created_at_fixed = post.record.created_at
-                                timeposted = datetime.datetime.strptime(created_at_fixed, "%Y-%m-%dT%H:%M:%S.%fZ")
-                        except (ValueError) as e_time:
-                            print(f"Skipping post {post_uri} due to timestamp parsing error: {e_time}.'")
-                            continue
+                        timeposted_str = post.record.created_at
+                        timeposted_aware = datetime.fromisoformat(timeposted_str)
+                        timeposted_naive_utc = timeposted_aware.astimezone(timezone.utc).replace(tzinfo=None)
+                        timeposted = timeposted_naive_utc
 
                         sentiment_score = analyze_sentiment_vader(post_text)
 

@@ -61,7 +61,6 @@ nltk.download('wordnet')
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print("Using device:", device)
 
-
 n_epoch = 30
 load_dotenv() #load the .env file
 driver = '{ODBC Driver 18 for SQL Server}'
@@ -70,16 +69,9 @@ database = os.getenv("DATABASE_NAME")
 username = os.getenv("DATABASE_USERNAME")
 password = os.getenv("DATABASE_PASSWORD")
 
-'''
-# use to view environmental variables are fetched properly
-print(f"DATABASE_SERVER: {server}")
-print(f"DATABASE_NAME: {database}")
-print(f"DATABASE_USERNAME: {username}")
-print(f"DATABASE_PASSWORD: {password}")
-'''
 #download bertweet
-#AutoTokenizer.from_pretrained("vinai/bertweet-base").save_pretrained("./bertweet-local")
-#AutoModel.from_pretrained("vinai/bertweet-base").save_pretrained("./bertweet-local")
+AutoTokenizer.from_pretrained("vinai/bertweet-base").save_pretrained("./bertweet-local")
+AutoModel.from_pretrained("vinai/bertweet-base").save_pretrained("./bertweet-local")
 
 #preprocessing
 lemmatizer = WordNetLemmatizer()
@@ -136,21 +128,23 @@ def load_data_test():
     print("SQL server connection successful: connected to Bluesky_Posts")
     cursor = db.cursor()
 
+    '''
+    ### Use to process the LAST HOUR of posts ###
     # calculate one hour ago
     last_hour = datetime.datetime.now() - datetime.timedelta(hours=1)
     sql_time = last_hour.strftime('%Y-%m-%d %H:%M:%S')  # format time for SQL server
 
     print(f"Fetching posts after time: {sql_time}")
-
-    #use this to process the last hour of post
+    
     query = """
     SELECT * FROM Bluesky_Posts 
     WHERE timeposted >= ?
     """
     cursor.execute(query, (sql_time,))
-    
-    #use this to rpocess all posts in Bluesky_Posts
-    #cursor.execute("SELECT * FROM Bluesky_Posts")      # old query: fetches ALL posts
+    '''
+
+    ### Use to process ALL posts in Bluesky_Posts ###
+    cursor.execute("SELECT * FROM Bluesky_Posts")      
     
     results = cursor.fetchall()
     columns = [column[0] for column in cursor.description]
@@ -161,49 +155,81 @@ def load_data_test():
     db.close()
     return test
 
-#loads Vanessa's model output into the table LSTM_Posts, 4_2
+#loads Vanessa's model output into the table LSTM_Posts, final version
 def send_LSTM_data(relevant_posts):
-    valid_categories = {    'Flood', 'Drought', 'Landslide', 'Volcano', 'Blizzard',
-                            'Earthquake', 'Tsunami', 'Wildfire', 'Hurricane', 'Tornado', 'Other' }
+    # ensure latitude is of type decimal(8,6) for the database
+    # round value if it is within -90, 90 range, or set as None if no LAT value
+    def check_LAT(val):
+        try:
+            val = float(val)
+            if pd.isna(val) or np.isnan(val) or abs(val) > 90: 
+                return None
+            return round(val, 6)
+        except:
+            return None
 
-    # using the ODBC driver 18, create a connection engine to Azure SQL server
-    engine = create_engine(
-        f"mssql+pyodbc://{username}:{password}@{server}/{database}?driver=ODBC+Driver+18+for+SQL+Server"
-    )
+    # ensure longitude is of type decimal(9,6) for the database
+    # round value if it is within -180, 180 range, or set as None if no LON value
+    def check_LON(val):
+        try:
+            val = float(val)
+            if pd.isna(val) or np.isnan(val) or abs(val) > 180:
+                return None
+            return round(val, 6)
+        except:
+            return None
 
-    with engine.begin() as connection:
-        metadata = MetaData()           # container for data definitions
-        metadata.reflect(bind=engine)   # loads existing schemas into metadata
+    try:
+        conn = pyodbc.connect(f'DRIVER={driver};SERVER={server};DATABASE={database};UID={username};PWD={password}')
+    except Exception as e:
+        print(f"Error connecting to SQL Server: {e}")
+        return None
+    print("SQL server connection successful: connected to LSTM_Posts")
+    cursor = conn.cursor()
 
-        posts_table = Table('LSTM_Posts', metadata, autoload_with=connection)   # retrieves LSTM_Posts table
+    # valid categories for CATEGORY_CHECK constraint
+    valid_categories = {'Flood', 'Drought', 'Landslide', 'Volcano', 'Blizzard',
+                        'Earthquake', 'Tsunami', 'Wildfire', 'Hurricane', 'Tornado', 'Other'}
 
-        for index, row in relevant_posts.iterrows():
-            if row.category not in valid_categories:
-                print(f"Invalid category '{row.category}' for post_uri: {row.post_uri}. Skipping this row.")
-                continue
+    for index, row in relevant_posts.iterrows():
+        # validate current category
+        if row.category not in valid_categories:
+            print(f"Invalid category '{row.category}' for post_uri: {row.post_uri}. Skipping this row.")
+            continue 
 
-            insert_stmt = posts_table.insert().values(
-                post_uri =              row.post_uri,
-                post_author =           row.post_author,
-                post_author_display =   row.post_author_display,
-                post_text =             row.text,
-                timeposted  =           row.timeposted,
-                sentiment_score =       row.sentiment_score,
-                keyword =               row.keyword,
-                location =              row.location,
-                cleaned_text =          row.cleaned_text,
-                category =              row.category,
-                sentiment_label =       row.sentiment_label,
-                prediction =            row.prediction
+        if row.prediction == 0:
+            # prediction is 0, not a disaster. Skip this row.
+            continue
+
+        # ensure latitude and longitude are valid
+        # rows without lat and lon are saved as "None", not nan
+        lat = check_LAT(row.LAT)
+        lon = check_LON(row.LON)
+
+        # check latitude and longitude vaues: 
+        # print(f"Row: {index}, LAT: {lat}, LON: {lon}")
+
+        try:
+            cursor.execute(
+                """
+                INSERT INTO LSTM_Posts (
+                    post_uri, post_author, post_author_display, post_text, timeposted,
+                    sentiment_score, keyword, location, cleaned_text, category,
+                    sentiment_label, prediction, LAT, LON
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                row.post_uri, row.post_author, row.post_author_display, row.text,
+                row.timeposted, row.sentiment_score, row.keyword, row.location,
+                row.cleaned_text, row.category, row.sentiment_label, row.prediction,
+                lat, lon
             )
-            try:
-                connection.execute(insert_stmt)
-            except Exception as e:
-                if 'duplicate' in str(e).lower():
-                    print(f"Duplicate entry skipped for post_uri: {row.post_uri}")
-                else:
-                    print(f"Error inserting post_uri: {row.post_uri} — {e}")
-
+        except pyodbc.IntegrityError as dup_error:
+            print(f"Duplicate entry skipped for post_uri: {row.post_uri}")
+            continue  # handles duplicate posts
+    conn.commit()
+    cursor.close()
+    conn.close()
     return "Data inserted into LSTM_Posts" 
 
 # first model, Kenny's BERTmodel
@@ -241,13 +267,6 @@ def run_model1(train, bluesky_df):
     # Clean text
     def clean_text(text):
         return text.lower().strip()
-
-    '''
-    # Extract locations from text
-    def extract_locations(text):
-        doc = nlp(text)
-        return [ent.text for ent in doc.ents if ent.label_ == "GPE"]
-    '''
 
     # Preprocess Bluesky posts
     bluesky_df["text"] = bluesky_df["text"].astype(str).apply(clean_text)
@@ -347,14 +366,10 @@ def run_model2(relevant_posts):
     def text_cleaning(data):
         return ' '.join(i for i in data.split() if i not in common_words)
 
-
-    #fixme, changed preprocess_data to preproc_data: def preprocess_data(data):
     def preproc_data(data):
-        '''
-        Input: Data to be cleaned.
-        Output: Cleaned Data.
+        #Input: Data to be cleaned.
+        #Output: Cleaned Data.
 
-        '''
         review =re.sub(r'https?://\S+|www\.\S+|http?://\S+',' ',data) #removal of url
         review =re.sub(r'<.*?>',' ',review) #removal of html tags
         review = re.sub("["
@@ -389,13 +404,6 @@ def run_model2(relevant_posts):
         else:
             return 'neutral'
 
-    '''
-    # Define a function to extract location names from a text using SpaCy NER
-    def extract_locations(text):
-        doc = nlp(text)
-        return [ent.text for ent in doc.ents if ent.label_ in ['LOC', 'GPE']]
-    '''
-
     def top_ngrams(data,n,grams):
 
         if grams == 1:
@@ -419,7 +427,6 @@ def run_model2(relevant_posts):
 
         return word_freq[:n]
 
-    # Liz: renamed to lowercase variables, e.g.) Cleaned_text to cleaned_text
     # variable names should match the database columns
     train["cleaned_text"] = train["text"].apply(preproc_data)
     relevant_posts["cleaned_text"] = relevant_posts["text"].apply(preproc_data)
@@ -445,9 +452,6 @@ def run_model2(relevant_posts):
     print(common_words_tri)
 
     ### CAN DETECT DISASTER TYPE ### Not a predictive model ###
-
-    # Array of disaster types (change later)
-    #fixme: renamed to disaster_kwords      disaster_keywords = {
     disaster_kwords = {
         'earthquake': ['earthquake', '#earthquake'],
         'flood': ['flood', '#flood'],
@@ -540,11 +544,133 @@ def run_model2(relevant_posts):
 
     # Convert probabilities to binary values (0 or 1)
     binary_predictions = (predictions > 0.5).astype(int)
-    relevant_posts['prediction'] = binary_predictions
+    relevant_posts['prediction'] = binary_predictions     
     
-    relevant_posts.to_csv('BlueSkyTestPredictions.csv', index=False)
+    ### MOVED TO END OF K-MEANS ALGO
+    ### K-Means Clustering Function; Clusters similar disaster posts with each other so we can detect ongoing situations. Kinda simple for now, will update later.
+    ##### UPDATE: Updated K-means with location and time; location is not filtered for states. I'll keep working on that and see if it can work.
+
+    from sklearn.cluster import KMeans
+    from scipy.sparse import hstack
+
+    # TF-IDF Encoding Function
+    def encoding(train_data, test_data):
+        tfidf = TfidfVectorizer(
+            ngram_range=(1, 1), use_idf=True, smooth_idf=True, sublinear_tf=True
+        )
+        tf_df_train = tfidf.fit_transform(train_data).toarray()
+        train_df = pd.DataFrame(tf_df_train, columns=tfidf.get_feature_names_out())
+        tf_df_test = tfidf.transform(test_data).toarray()
+        test_df = pd.DataFrame(tf_df_test, columns=tfidf.get_feature_names_out())
+
+        return train_df, test_df, tfidf
     
-    return relevant_posts    
+    disaster_posts = relevant_posts[relevant_posts['prediction'] == 1].copy()
+    disaster_posts['original_index'] = disaster_posts.index
+
+    relevant_posts['location'] = relevant_posts['location'].apply(
+        lambda x: ', '.join(x) if isinstance(x, list) else x
+    )
+
+    from sklearn.preprocessing import OneHotEncoder
+
+    disaster_posts['location'] = disaster_posts['location'].fillna("unknown").astype(str)
+    location_encoder = OneHotEncoder(handle_unknown='ignore', sparse_output=True)
+    location_encoded = location_encoder.fit_transform(disaster_posts[['location']])
+    
+    # Check if there are any disaster posts
+    if not disaster_posts.empty:
+        disaster_posts['text'] = disaster_posts['cleaned_text']
+
+        # TF-IDF vectorization
+        _, disaster_tfidf_matrix, tfidf = encoding(train["cleaned_text"], disaster_posts['text'])
+
+        combined_features = hstack([
+            disaster_tfidf_matrix,
+            location_encoded
+        ])
+
+        # Cluster if enough data
+        if combined_features.shape[0] > 1 and combined_features.shape[1] > 1:
+            ### IMPORTANT: Change value to a lower number, preferably 100 or less
+            num_clusters = max(1, disaster_posts.shape[0] // 10)
+
+            kmeans = KMeans(n_clusters=num_clusters, random_state=42)
+            kmeans.fit(combined_features)
+
+            # Save original index BEFORE reset
+            disaster_posts['cluster'] = kmeans.labels_
+            relevant_posts.loc[disaster_posts['original_index'], 'cluster'] = disaster_posts['cluster'].value_counts
+
+            # Initialize 'cluster'
+            relevant_posts['cluster'] = None
+
+            # Write the cluster labels into test at the right rows
+            relevant_posts.loc[disaster_posts['original_index'], ['cluster']] = disaster_posts['cluster'].values
+    
+        else:
+            print("Not enough data to perform clustering.")
+    else:
+        print("No disaster posts found for clustering.")
+    
+    ### Gets locations of clusters and their coordinates
+    from geopy.extra.rate_limiter import RateLimiter
+
+    relevant_posts['cluster'] = pd.to_numeric(relevant_posts['cluster'], errors='coerce')
+    
+    # Geocoding setup
+    geolocator = Nominatim(user_agent="cluster_location_geocoder")
+    geocode = RateLimiter(geolocator.geocode, min_delay_seconds=1)
+    location_cache = {}
+
+    def get_coordinates(location):
+        if location in location_cache:
+            return location_cache[location]
+        try:
+            loc = geocode(location)
+            if loc:
+                coords = (loc.latitude, loc.longitude)
+                location_cache[location] = coords
+                return coords
+        except:
+            pass
+        location_cache[location] = (np.nan, np.nan)
+        return (np.nan, np.nan)
+    
+    # Get most common location per cluster
+    cluster_location_mode = (
+        relevant_posts[relevant_posts['cluster'].notnull()]
+        .groupby('cluster')['location']
+        .agg(lambda x: x.mode().iloc[0] if not x.mode().empty else "unknown")
+        .reset_index()
+        .rename(columns={"location": "Most_Common_Location"})
+    )
+
+    # Geocode locations
+    cluster_location_mode['Coordinates'] = cluster_location_mode['Most_Common_Location'].apply(get_coordinates)
+
+    cluster_location_mode['Coordinates'] = cluster_location_mode['Coordinates'].apply(
+        lambda x: x if isinstance(x, (tuple, list)) and len(x) == 2 else (np.nan, np.nan)
+    )
+    cluster_location_mode['lat'] = cluster_location_mode['Coordinates'].apply(lambda x: x[0])
+    cluster_location_mode['lon'] = cluster_location_mode['Coordinates'].apply(lambda x: x[1])
+
+    # Filter through US coordinates
+    us_clusters = cluster_location_mode[
+        (cluster_location_mode['lat'].between(24, 49)) &
+        (cluster_location_mode['lon'].between(-125, -66))
+    ]
+
+    lat_map = us_clusters.set_index('cluster')['lat'].to_dict()
+    lon_map = us_clusters.set_index('cluster')['lon'].to_dict()
+
+    # Save back to db
+    relevant_posts['LAT'] = relevant_posts['cluster'].map(lat_map)
+    relevant_posts['LON'] = relevant_posts['cluster'].map(lon_map)
+
+    relevant_posts.to_csv('BlueSkyTestPredictions.csv', index=False)    
+    return relevant_posts   
+# end run_model2
 
 def main() -> None:
     try:
@@ -556,18 +682,13 @@ def main() -> None:
     # run model1, Kenny's model
     relevant_posts = run_model1(train, test)
     
-    # model1 outputs and model2 receives:
-        # post_uri, post_author, post_author_display, text, timeposted, sentiment_score, keyword, location, cleaned_text, category
-    # model2 outputs:
-        # post_uri, post_author, post_author_display, post_text, timeposted, sentiment_score, keyword, location, cleaned_text, category, sentiment_label, prediction	
-        
     # run model2, Vanessa's model
     relevant_posts = run_model2(relevant_posts)
     
     # connect to LSTM_Posts, then insert posts. 4_2
     try:
         loadSuccess = send_LSTM_data(relevant_posts)
-        print(loadSuccess)                                  # for debugging, prints when successfully inserted into LSTM_Posts
+        print(loadSuccess)                                  # prints when successfully inserted into LSTM_Posts
     except Exception as e:
         print(f"Error inserting into LSTM_Posts: {e}")
 
