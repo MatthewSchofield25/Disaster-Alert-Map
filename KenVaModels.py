@@ -39,6 +39,7 @@ from keras.optimizers import Adam,SGD
 from tensorflow.keras import regularizers
 from tensorflow.keras.callbacks import *
 import datetime
+from decimal import Decimal
 
 # new Kenny requitements
 import torch
@@ -69,13 +70,6 @@ database = os.getenv("DATABASE_NAME")
 username = os.getenv("DATABASE_USERNAME")
 password = os.getenv("DATABASE_PASSWORD")
 
-'''
-# use to view environmental variables are fetched properly
-print(f"DATABASE_SERVER: {server}")
-print(f"DATABASE_NAME: {database}")
-print(f"DATABASE_USERNAME: {username}")
-print(f"DATABASE_PASSWORD: {password}")
-'''
 #download bertweet
 AutoTokenizer.from_pretrained("vinai/bertweet-base").save_pretrained("./bertweet-local")
 AutoModel.from_pretrained("vinai/bertweet-base").save_pretrained("./bertweet-local")
@@ -143,7 +137,6 @@ def load_data_test():
 
     print(f"Fetching posts after time: {sql_time}")
     
-    #use this to process the last hour of posts
     query = """
     SELECT * FROM Bluesky_Posts 
     WHERE timeposted >= ?
@@ -152,11 +145,7 @@ def load_data_test():
     '''
 
     ### Use to process ALL posts in Bluesky_Posts ###
-    cursor.execute("SELECT * FROM Bluesky_Posts")      # old query: fetches ALL posts
-
-    #Liz: Used for testing when implementing coordinates
-    #    today_time = '2025-04-21 01:00:00.000'
-    #   cursor.execute(query, (today_time,))
+    cursor.execute("SELECT * FROM Bluesky_Posts")      
     
     results = cursor.fetchall()
     columns = [column[0] for column in cursor.description]
@@ -167,56 +156,81 @@ def load_data_test():
     db.close()
     return test
 
-#loads Vanessa's model output into the table LSTM_Posts, 4_2
+#loads Vanessa's model output into the table LSTM_Posts, final version
 def send_LSTM_data(relevant_posts):
-    valid_categories = {    'Flood', 'Drought', 'Landslide', 'Volcano', 'Blizzard',
-                            'Earthquake', 'Tsunami', 'Wildfire', 'Hurricane', 'Tornado', 'Other' }
+    # ensure latitude is of type decimal(8,6) for the database
+    # round value if it is within -90, 90 range, or set as None if no LAT value
+    def check_LAT(val):
+        try:
+            val = float(val)
+            if pd.isna(val) or np.isnan(val) or abs(val) > 90: 
+                return None
+            return round(val, 6)
+        except:
+            return None
 
-    # using the ODBC driver 18, create a connection engine to Azure SQL server
-    engine = create_engine(
-        f"mssql+pyodbc://{username}:{password}@{server}/{database}?driver=ODBC+Driver+18+for+SQL+Server"
-    )
+    # ensure longitude is of type decimal(9,6) for the database
+    # round value if it is within -180, 180 range, or set as None if no LON value
+    def check_LON(val):
+        try:
+            val = float(val)
+            if pd.isna(val) or np.isnan(val) or abs(val) > 180:
+                return None
+            return round(val, 6)
+        except:
+            return None
 
-    with engine.begin() as connection:
-        metadata = MetaData()           # container for data definitions
-        metadata.reflect(bind=engine)   # loads existing schemas into metadata
+    try:
+        conn = pyodbc.connect(f'DRIVER={driver};SERVER={server};DATABASE={database};UID={username};PWD={password}')
+    except Exception as e:
+        print(f"Error connecting to SQL Server: {e}")
+        return None
+    print("SQL server connection successful: connected to LSTM_Posts")
+    cursor = conn.cursor()
 
-        posts_table = Table('LSTM_Posts', metadata, autoload_with=connection)   # retrieves LSTM_Posts table
+    # valid categories for CATEGORY_CHECK constraint
+    valid_categories = {'Flood', 'Drought', 'Landslide', 'Volcano', 'Blizzard',
+                        'Earthquake', 'Tsunami', 'Wildfire', 'Hurricane', 'Tornado', 'Other'}
 
-        for index, row in relevant_posts.iterrows():
-            if row.category not in valid_categories:
-                print(f"Invalid category '{row.category}' for post_uri: {row.post_uri}. Skipping this row.")
-                continue
+    for index, row in relevant_posts.iterrows():
+        # validate current category
+        if row.category not in valid_categories:
+            print(f"Invalid category '{row.category}' for post_uri: {row.post_uri}. Skipping this row.")
+            continue 
 
-             # ensure latitude and longitude are valid
-             # rows without lat and lon are saved as "None", not nan
-            lat = round(float(row.LAT), 6) if pd.notna(row.LAT) and not np.isnan(row.LAT) else None
-            lon = round(float(row.LON), 6) if pd.notna(row.LON) and not np.isnan(row.LON) else None
+        if row.prediction == 0:
+            # prediction is 0, not a disaster. Skip this row.
+            continue
 
-            insert_stmt = posts_table.insert().values(
-                post_uri =              row.post_uri,
-                post_author =           row.post_author,
-                post_author_display =   row.post_author_display,
-                post_text =             row.text,
-                timeposted  =           row.timeposted,
-                sentiment_score =       row.sentiment_score,
-                keyword =               row.keyword,
-                location =              row.location,
-                cleaned_text =          row.cleaned_text,
-                category =              row.category,
-                sentiment_label =       row.sentiment_label,
-                prediction =            row.prediction,
-                LAT =                   lat,
-                LON =                   lon
+        # ensure latitude and longitude are valid
+        # rows without lat and lon are saved as "None", not nan
+        lat = check_LAT(row.LAT)
+        lon = check_LON(row.LON)
+
+        # check latitude and longitude vaues: 
+        # print(f"Row: {index}, LAT: {lat}, LON: {lon}")
+
+        try:
+            cursor.execute(
+                """
+                INSERT INTO LSTM_Posts (
+                    post_uri, post_author, post_author_display, post_text, timeposted,
+                    sentiment_score, keyword, location, cleaned_text, category,
+                    sentiment_label, prediction, LAT, LON
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                row.post_uri, row.post_author, row.post_author_display, row.text,
+                row.timeposted, row.sentiment_score, row.keyword, row.location,
+                row.cleaned_text, row.category, row.sentiment_label, row.prediction,
+                lat, lon
             )
-            try:
-                connection.execute(insert_stmt)
-            except Exception as e:
-                if 'duplicate' in str(e).lower():
-                    print(f"Duplicate entry skipped for post_uri: {row.post_uri}")
-                else:
-                    print(f"Error inserting post_uri: {row.post_uri} — {e}")
-
+        except pyodbc.IntegrityError as dup_error:
+            print(f"Duplicate entry skipped for post_uri: {row.post_uri}")
+            continue  # handles duplicate posts
+    conn.commit()
+    cursor.close()
+    conn.close()
     return "Data inserted into LSTM_Posts" 
 
 # first model, Kenny's BERTmodel
@@ -254,13 +268,6 @@ def run_model1(train, bluesky_df):
     # Clean text
     def clean_text(text):
         return text.lower().strip()
-
-    '''
-    # Extract locations from text
-    def extract_locations(text):
-        doc = nlp(text)
-        return [ent.text for ent in doc.ents if ent.label_ == "GPE"]
-    '''
 
     # Preprocess Bluesky posts
     bluesky_df["text"] = bluesky_df["text"].astype(str).apply(clean_text)
@@ -360,14 +367,10 @@ def run_model2(relevant_posts):
     def text_cleaning(data):
         return ' '.join(i for i in data.split() if i not in common_words)
 
-
-    #fixme, changed preprocess_data to preproc_data: def preprocess_data(data):
     def preproc_data(data):
-        '''
-        Input: Data to be cleaned.
-        Output: Cleaned Data.
+        #Input: Data to be cleaned.
+        #Output: Cleaned Data.
 
-        '''
         review =re.sub(r'https?://\S+|www\.\S+|http?://\S+',' ',data) #removal of url
         review =re.sub(r'<.*?>',' ',review) #removal of html tags
         review = re.sub("["
@@ -402,13 +405,6 @@ def run_model2(relevant_posts):
         else:
             return 'neutral'
 
-    '''
-    # Define a function to extract location names from a text using SpaCy NER
-    def extract_locations(text):
-        doc = nlp(text)
-        return [ent.text for ent in doc.ents if ent.label_ in ['LOC', 'GPE']]
-    '''
-
     def top_ngrams(data,n,grams):
 
         if grams == 1:
@@ -432,7 +428,6 @@ def run_model2(relevant_posts):
 
         return word_freq[:n]
 
-    # Liz: renamed to lowercase variables, e.g.) Cleaned_text to cleaned_text
     # variable names should match the database columns
     train["cleaned_text"] = train["text"].apply(preproc_data)
     relevant_posts["cleaned_text"] = relevant_posts["text"].apply(preproc_data)
@@ -458,9 +453,6 @@ def run_model2(relevant_posts):
     print(common_words_tri)
 
     ### CAN DETECT DISASTER TYPE ### Not a predictive model ###
-
-    # Array of disaster types (change later)
-    #fixme: renamed to disaster_kwords      disaster_keywords = {
     disaster_kwords = {
         'earthquake': ['earthquake', '#earthquake'],
         'flood': ['flood', '#flood'],
@@ -602,7 +594,7 @@ def run_model2(relevant_posts):
         # Cluster if enough data
         if combined_features.shape[0] > 1 and combined_features.shape[1] > 1:
             ### IMPORTANT: Change value to a lower number, preferably 100 or less
-            num_clusters = min(100, combined_features.shape[0])
+            num_clusters = max(1, disaster_posts.shape[0] // 10)
 
             kmeans = KMeans(n_clusters=num_clusters, random_state=42)
             kmeans.fit(combined_features)
@@ -610,14 +602,7 @@ def run_model2(relevant_posts):
             # Save original index BEFORE reset
             disaster_posts['cluster'] = kmeans.labels_
             relevant_posts.loc[disaster_posts['original_index'], 'cluster'] = disaster_posts['cluster'].value_counts
-        
-            '''
-            for cluster_id, group in relevant_posts[relevant_posts['cluster'].notnull()].groupby('cluster'):
-                top_locs = group['location'].value_counts().head(3)
-                #print(f"Cluster {cluster_id} - Posts:")
-                #print(group['cleaned_text'].head(5).to_string(index=False))
-                #print(top_locs.to_string(), "\n")
-            '''
+
             # Initialize 'cluster'
             relevant_posts['cluster'] = None
 
@@ -679,10 +664,6 @@ def run_model2(relevant_posts):
 
     lat_map = us_clusters.set_index('cluster')['lat'].to_dict()
     lon_map = us_clusters.set_index('cluster')['lon'].to_dict()
-    
-    # Without filter
-    #lat_map = cluster_location_mode.set_index('cluster')['lat'].to_dict()
-    #lon_map = cluster_location_mode.set_index('cluster')['lon'].to_dict()
 
     # Save back to db
     relevant_posts['LAT'] = relevant_posts['cluster'].map(lat_map)
@@ -702,18 +683,13 @@ def main() -> None:
     # run model1, Kenny's model
     relevant_posts = run_model1(train, test)
     
-    # model1 outputs and model2 receives:
-        # post_uri, post_author, post_author_display, text, timeposted, sentiment_score, keyword, location, cleaned_text, category
-    # model2 outputs:
-        # post_uri, post_author, post_author_display, post_text, timeposted, sentiment_score, keyword, location, cleaned_text, category, sentiment_label, prediction	
-        
     # run model2, Vanessa's model
     relevant_posts = run_model2(relevant_posts)
     
     # connect to LSTM_Posts, then insert posts. 4_2
     try:
         loadSuccess = send_LSTM_data(relevant_posts)
-        print(loadSuccess)                                  # for debugging, prints when successfully inserted into LSTM_Posts
+        print(loadSuccess)                                  # prints when successfully inserted into LSTM_Posts
     except Exception as e:
         print(f"Error inserting into LSTM_Posts: {e}")
 
