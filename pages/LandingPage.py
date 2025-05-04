@@ -115,11 +115,25 @@ def generate_geo_map(geo_data):
     location = geo_data['location'].tolist()
     disaster_type = geo_data['category'].tolist()
 
+    category_colors = {
+        'Flood': '#1f77b4',      # Blue
+        'Drought': '#ff7f0e',    # Orange
+        'Landslide': '#2ca02c',  # Green
+        'Volcano': '#d62728',     # Red
+        'Blizzard': '#9467bd',    # Purple
+        'Earthquake': '#8c564b',  # Brown
+        'Tsunami': '#0f5b91',     # Dark Blue
+        'Wildfire': '#ff4500',   # Orangish-Red
+        'Hurricane': '#17becf',   # Teal
+        'Tornado': '#7f7f7f',     # Gray
+        'Other': '#aec7e8'       # Light blue
+    }
+
     disasters = []
 
     for i in range(len(lat)):
         size =  (1 - avg_sentiment[i]) + post_count[i]
-        color = "#21c7ef"
+        color = category_colors.get(disaster_type[i], '#21c7ef')  # Default to blue if category not found
 
         disaster = go.Scattermap(
             lat=[lat[i]],
@@ -132,7 +146,8 @@ def generate_geo_map(geo_data):
             opacity=0.8,
             customdata=[location[i], disaster_type[i]],
             hoverinfo="text",
-            text=f"{location[i]} ({disaster_type[i]})<br>Avg Sentiment: {avg_sentiment[i]:.2f}<br>Post Count: {post_count[i]}"
+            text=f"{location[i]} ({disaster_type[i]})<br>Avg Sentiment: {avg_sentiment[i]:.2f}<br>Post Count: {post_count[i]}",
+            name = disaster_type[i] # for legend
         )
         disasters.append(disaster)
 
@@ -146,7 +161,14 @@ def generate_geo_map(geo_data):
         paper_bgcolor="#171b26",
         clickmode="event+select",
         hovermode="closest",
-        showlegend=False,
+        legend = dict(
+            title = "Diaster Types",
+            orientation = "h",
+            yanchor = "bottom",
+            y = 1.02,
+            xanchor = "right",
+            x =1
+        ),
         mapbox=go.layout.Mapbox(
             accesstoken=mapbox_access_token,
             bearing=0,
